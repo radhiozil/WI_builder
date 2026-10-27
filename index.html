@@ -1,0 +1,975 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>WI Builder</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one narrow working column. Step 1 upload, step 2 review (accordion sections), step 3 download.
+   Tokens: lab-bench grey-green neutrals, one teal accent; blue is reserved for Malay text to match the Word output. */
+:root {
+  --bg: #f3f5f4; --surface: #ffffff; --surface-2: #eaeeec; --fg: #1b2422; --muted: #566561; --line: #cdd5d2;
+  --accent: #0f6b66; --accent-fg: #ffffff; --accent-soft: #dcefec;
+  --warn-bg: #fff4d6; --warn-fg: #5c4300; --warn-line: #e3c36a;
+  --ms: #1a35d6; --danger: #a12d2d;
+  --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121817; --surface: #1a2221; --surface-2: #232d2b; --fg: #e5ecea; --muted: #9aaaa6; --line: #35423f;
+  --accent: #4cc2b8; --accent-fg: #07201e; --accent-soft: #1d3a37;
+  --warn-bg: #3a3017; --warn-fg: #f2dba0; --warn-line: #7a6525; --ms: #8ea2ff; --danger: #f08a8a; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121817; --surface: #1a2221; --surface-2: #232d2b; --fg: #e5ecea; --muted: #9aaaa6; --line: #35423f;
+  --accent: #4cc2b8; --accent-fg: #07201e; --accent-soft: #1d3a37;
+  --warn-bg: #3a3017; --warn-fg: #f2dba0; --warn-line: #7a6525; --ms: #8ea2ff; --danger: #f08a8a; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 24px; }
+h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+p { margin: 0; }
+.intro { color: var(--muted); max-width: 62ch; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 20px; }
+.drops { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.dz { min-width: 0; }
+.file-in { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.drop { display: flex; flex-direction: column; gap: 4px; padding: 18px; border: 1.5px dashed var(--line); border-radius: 6px; cursor: pointer; background: var(--bg); min-height: 112px; transition: border-color .15s, background .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.file-in:focus-visible + .drop { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop.has { border-style: solid; border-color: var(--accent); }
+.drop-title { font-weight: 600; font-size: 17px; }
+.drop-hint { color: var(--muted); font-size: 13px; }
+.fname { margin-top: auto; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.drop.has .fname { color: var(--accent); }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 16px; }
+.btn { font: inherit; font-weight: 500; padding: 9px 16px; border-radius: 5px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; padding: 11px 20px; }
+.btn.small { padding: 4px 10px; font-size: 13px; }
+.btn.danger { color: var(--danger); }
+.status { color: var(--muted); font-size: 14px; }
+.status.warn { color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-line); padding: 8px 12px; border-radius: 5px; }
+.status:empty { display: none; }
+.note { font-size: 13px; color: var(--muted); max-width: 70ch; }
+
+.summary { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+.lead { font-weight: 500; }
+.okline { color: var(--muted); }
+.warn { background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-line); border-radius: 6px; padding: 12px 16px; }
+.warn ul { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+#review { display: flex; flex-direction: column; gap: 10px; }
+.sec { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.sec > summary, .ref > summary, .help > summary { cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+.sec > summary::-webkit-details-marker, .ref > summary::-webkit-details-marker, .help > summary::-webkit-details-marker { display: none; }
+.sec > summary::before, .ref > summary::before, .help > summary::before { content: ''; width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; }
+.sec[open] > summary::before, .ref[open] > summary::before, .help[open] > summary::before { transform: rotate(45deg); }
+.sec-body { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px; }
+.help { font-size: 13.5px; color: var(--muted); } .help > summary { font-weight: 500; padding: 6px 4px; }
+.help p { padding: 4px 4px 8px; max-width: 80ch; }
+code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 3px; }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field > label, .tf > label { font-size: 13px; font-weight: 500; color: var(--muted); }
+.hint { font-size: 13px; color: var(--muted); max-width: 80ch; }
+input[type=text], select, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; width: 100%; min-width: 0; }
+textarea { resize: vertical; line-height: 1.45; min-height: 40px; }
+textarea.ms { color: var(--ms); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.rows { display: flex; flex-direction: column; gap: 14px; }
+.row-card { border: 1px solid var(--line); border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: var(--surface); }
+.row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.row-head .sp { flex: 1; }
+.lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.sno { font-family: var(--mono); font-weight: 500; font-size: 15px; font-variant-numeric: tabular-nums; }
+.tag { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); }
+.tag.moi { background: var(--accent-soft); color: var(--accent); }
+.tf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.row-actions { display: flex; gap: 8px; }
+.ref { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+.ref .hint { padding: 0 16px 8px; }
+.moi { list-style: none; margin: 0; padding: 0 16px 12px; display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
+.moi li { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; font-size: 13.5px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.moi li span { min-width: 0; overflow-wrap: anywhere; }
+.moi .btn { flex: none; }
+.dl { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px 16px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+@media (max-width: 520px) { .panel { padding: 14px; } h1 { font-size: 22px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>WI Builder</h1>
+    <p class="intro">Combine an OJTI and an MOI into one Work Instruction in the new format. The files are read in this browser and are not sent anywhere.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="h-up">
+    <h2 id="h-up">1. Upload the Word files</h2>
+    <div class="drops" id="drops"></div>
+    <div class="actions">
+      <button class="btn primary" id="go" type="button" disabled>Read files</button>
+      <span class="status" id="status" role="status"></span>
+    </div>
+    <p class="note" style="margin-top:12px">Either file alone also works. English and Malay text in the OJTI step table are separated automatically. Always check the result in the next step.</p>
+  </section>
+
+  <section id="s-review" hidden aria-labelledby="h-rv">
+    <h2 id="h-rv">2. Review and edit</h2>
+    <div id="review"></div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/* ===== Core: read OJTI / MOI (.docx), merge into a WI model, write WI (.docx) ===== */
+const WNS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+
+/* ---------- docx reading ---------- */
+const SKIP = new Set(['drawing', 'pict', 'object', 'del', 'instrText', 'delText', 'pPr', 'rPr', 'rPrChange', 'moveFrom']);
+function kids(el, name) { return Array.from(el.children).filter((c) => c.localName === name); }
+
+function paraLines(p) {
+  const lines = [''];
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType !== 1) continue;
+      const ln = c.localName;
+      if (SKIP.has(ln)) continue;
+      if (ln === 't') lines[lines.length - 1] += c.textContent;
+      else if (ln === 'tab') lines[lines.length - 1] += ' ';
+      else if (ln === 'noBreakHyphen') lines[lines.length - 1] += '-';
+      else if (ln === 'br' || ln === 'cr') {
+        const t = c.getAttributeNS(WNS, 'type') || c.getAttribute('w:type');
+        if (t !== 'page' && t !== 'column') lines.push('');
+      } else walk(c);
+    }
+  })(p);
+  return lines.map((s) => s.replace(/[\s ]+/g, ' ').trim());
+}
+
+function tblRows(t) {
+  return kids(t, 'tr').map((tr) => kids(tr, 'tc').map((tc) => {
+    const lines = [];
+    for (const c of tc.children) {
+      if (c.localName === 'p') lines.push(...paraLines(c));
+      else if (c.localName === 'tbl') for (const r of tblRows(c)) lines.push(r.map((x) => x.join(' ')).join(' '));
+    }
+    return lines.filter(Boolean);
+  }));
+}
+
+function readBlocks(xmlDoc) {
+  const body = xmlDoc.getElementsByTagNameNS(WNS, 'body')[0];
+  const blocks = [];
+  (function walk(n) {
+    for (const c of n.children) {
+      const ln = c.localName;
+      if (ln === 'p') blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean) });
+      else if (ln === 'tbl') blocks.push({ type: 'tbl', rows: tblRows(c) });
+      else if (ln === 'sdt') { const sc = kids(c, 'sdtContent')[0]; if (sc) walk(sc); }
+      else if (ln === 'customXml' || ln === 'smartTag' || ln === 'ins') walk(c);
+    }
+  })(body);
+  return blocks;
+}
+
+async function readDocx(file) {
+  const zip = await JSZip.loadAsync(file);
+  const docFile = zip.file('word/document.xml');
+  if (!docFile) throw new Error('This does not look like a Word (.docx) file.');
+  const parse = (s) => {
+    const d = new DOMParser().parseFromString(s, 'application/xml');
+    if (d.getElementsByTagName('parsererror').length) throw new Error('The Word file could not be read.');
+    return d;
+  };
+  const blocks = readBlocks(parse(await docFile.async('string')));
+  let hf = '';
+  for (const name of Object.keys(zip.files)) {
+    if (/^word\/(header|footer)\d*\.xml$/.test(name)) {
+      try { hf += '\n' + readBlocks(parse(await zip.file(name).async('string'))).map(blockText).join('\n'); } catch (e) { /* ignore */ }
+    }
+  }
+  return { blocks, hf, name: file.name };
+}
+function blockText(b) { return b.type === 'p' ? b.lines.join(' ') : b.rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join('\n'); }
+
+/* ---------- language split (English / Malay) ---------- */
+const MS_WORDS = new Set(('yang dan untuk di ke pada dengan atau ini itu dari dalam sebelah semasa ujian tekan letakkan pilih gunakan kawal mengawal sampel mesin kedudukan butang jika sekiranya sila rujuk setelah selesai ulang sehingga wayar cangkuk pahat tukar isi maklumat keluarkan simpan mulakan memastikan tidak hanya kakitangan semua bahan sisa tong penilaian keselamatan kebenaran arahan penerangan kumpulan jumlah masa latihan juruteknik alatan atas bawah kiri kanan tengah hidupkan gerakkan kepada orang bertanggungjawab pemilik berlaku kecemasan yg serta akan berdasarkan sesuai kerja pengendalian jenis tarik sesar mod putus gred paparan kekunci papan berkenaan tamat operasi panduan kawalan peralatan penyediaan langkah utama perkara bagaimana sebab mengapa gambar kesan pelan tindakbalas spesifikasi berkait pembuangan cecair pepejal tercemar hijau putih biru merah kebolehjejakan mengamalkan menutup sumber cahaya posisi asal pentas letak kapit pemegang kukuh keadaan sebelum membuka memilih menurunkan mengubah orientasi bola bebaji sirat lampu menjana fail format nama kunci ditunjukkan menjalankan proses dibenarkan lulus telah mengendalikan pengguna kerosakan jari meja bergerak analisis mengelakkan kecederaan meletak menukar mengeluarkan menekan pilihan peluncur kedua tuil tombol ketinggian selamat laraskan pandangan sudut jelas').split(/\s+/));
+const EN_WORDS = new Set('the to and of in on for with is are be by it as at from that this click press use select place adjust start test sample button wire hook ensure please refer only all if or not after before until repeat can will should must into when which used control position under near step file save open turn move set choose change fill up down left right high low end'.split(/\s+/));
+
+function classify(s) {
+  const toks = s.toLowerCase().match(/[a-z]+/g) || [];
+  let ms = 0, en = 0;
+  for (const t of toks) { if (MS_WORDS.has(t)) ms++; else if (EN_WORDS.has(t)) en++; }
+  if (ms > 0 && ms >= en) return 'ms';
+  if (en > 0) return 'en';
+  return 'unk';
+}
+function sentences(s) { return s.split(/(?<=[.!?])\s+(?=[A-Z‘'“"(\[])/); }
+function splitLang(lines) {
+  const en = [], ms = [];
+  let last = 'en';
+  for (const raw of lines) {
+    const segs = sentences(raw);
+    const cls = segs.map(classify);
+    const known = new Set(cls.filter((c) => c !== 'unk'));
+    let parts;
+    if (known.size > 1) {
+      parts = [];
+      let prev = cls.find((c) => c !== 'unk');
+      segs.forEach((t, i) => {
+        const c = cls[i] === 'unk' ? prev : cls[i];
+        prev = c;
+        if (parts.length && parts[parts.length - 1].c === c) parts[parts.length - 1].t += ' ' + t;
+        else parts.push({ t, c });
+      });
+    } else parts = [{ t: raw, c: known.size ? [...known][0] : 'unk' }];
+    for (const p of parts) {
+      const c = p.c === 'unk' ? last : p.c;
+      (c === 'ms' ? ms : en).push(p.t);
+      last = c;
+    }
+  }
+  return { en, ms };
+}
+function picNote(lines) {
+  const out = [];
+  for (const l of lines) {
+    const words = l.split(' ');
+    const cut = words.findIndex((w, i) => i > 0 && MS_WORDS.has(w.toLowerCase().replace(/[^a-z]/g, '')));
+    const t = (cut > 0 ? words.slice(0, cut) : words).join(' ').trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out.join('; ');
+}
+
+/* ---------- helpers ---------- */
+const stripNum = (s) => s.replace(/^\s*(?:\d+(?:\.\d+)*[.)]?|[•*\-–])\s+/, '').replace(/^\*+\s*/, '').trim();
+const headNorm = (s) => stripNum(s).replace(/^[\s\d.*]+/, '').replace(/[\s:.]+$/, '').toLowerCase();
+const words = (s) => new Set((s.toLowerCase().match(/[a-z0-9]+/g) || []));
+function sim(a, b) {
+  const A = words(a), B = words(b);
+  if (!A.size || !B.size) return 0;
+  let i = 0; for (const w of A) if (B.has(w)) i++;
+  return i / (A.size + B.size - i);
+}
+const DOCNO = /Z8[A-Z]\d{8}/g;
+function sentenceCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function cell(c) { return c.join(' ').replace(/\|/g, '/'); }
+function tableMarkup(rows) {
+  if (/proprietary data|company confidential|function \/ role|if printed|template word|for internal use only/i.test(rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join(' '))) return [];
+  const w = Math.max(0, ...rows.map((r) => r.length));
+  const keep = [];
+  for (let c = 0; c < w; c++) if (rows.some((r) => r[c] && r[c].length)) keep.push(c);
+  if (!keep.length) return [];
+  return rows.filter((r) => r.some((c) => c && c.length)).map((r) => '| ' + keep.map((c) => (r[c] ? cell(r[c]) : '')).join(' | ') + ' |');
+}
+function walkSections(blocks, detect) {
+  const out = { _pre: [] };
+  let cur = '_pre';
+  for (const b of blocks) {
+    if (b.type === 'p' && b.lines.length) {
+      const key = detect(headNorm(b.lines[0]), b.lines[0]);
+      if (key) { cur = key; out[key] = out[key] || []; const rest = b.lines.slice(1); if (rest.length) out[key].push({ type: 'p', lines: rest }); continue; }
+    }
+    (out[cur] = out[cur] || []).push(b);
+  }
+  return out;
+}
+function plines(blocks) { return (blocks || []).filter((b) => b.type === 'p').flatMap((b) => b.lines).map(stripNum).filter(Boolean); }
+
+/* ---------- section detection ---------- */
+function moiKey(n) {
+  if (n === 'purpose') return 'purpose';
+  if (n === 'scope') return 'scope';
+  if (/^related specifications?$/.test(n)) return 'related';
+  if (n === 'equipment used') return 'equipment';
+  if (n === 'material used' || n === 'materials used') return 'material';
+  if (n === 'maintenance') return 'maintenance';
+  if (/^description of workflow/.test(n)) return 'workflow';
+  if (n === 'safety') return 'safety';
+  if (/^waste disposal/.test(n)) return 'waste';
+  return null;
+}
+function ojtiKey(n) {
+  if (n === 'overview') return 'overview';
+  if (n === 'description') return 'desc';
+  if (n === 'target audience') return 'audience';
+  if (n === 'total ojt hours') return 'hours';
+  if (/^tools\s*\/\s*materials/.test(n)) return 'tools';
+  if (/^instruction\s*\/\s*information/.test(n)) return 'procedure';
+  if (n === 'impact') return 'impact';
+  if (n === 'reaction plan') return 'reaction';
+  if (/^related specifications?$/.test(n)) return 'related';
+  if (n === 'assessment') return 'assessment';
+  if (n === 'appendix') return 'appendix';
+  if (n === 'safety') return 'safety';
+  if (n === 'authorization') return 'safety';
+  if (/^waste disposal/.test(n)) return 'waste';
+  if (n === 'liquid waste') return 'liquid';
+  return null;
+}
+const SAFETY_SUB = /^(authorization|precautions?|chemical|additional information|emergency|safety wi attachment)$/;
+
+/* ---------- abbreviations ---------- */
+const GLOSSARY = {
+  '5S': 'Workplace organization method: Sort, Set in order, Shine, Standardize, Sustain', Cal: 'Calibration', CSV: 'Comma-separated values',
+  ESD: 'Electrostatic discharge', FA: 'Failure Analysis', FOV: 'Field of view', LED: 'Light-emitting diode', PC: 'Personal computer',
+  PIC: 'Person-in-charge', PM: 'Preventive maintenance', RHA: 'Risk and hazard assessment', SWI: 'Safety Work Instruction',
+  WI: 'Work Instruction', MOI: 'Machine Operating Instruction', OJTI: 'On-the-Job Training Instruction', OJT: 'On-the-job training',
+};
+function findAbbreviations(text) {
+  const found = {};
+  const rx = /\(([A-Z][A-Za-z0-9]{1,7})\)/g;
+  let m;
+  while ((m = rx.exec(text))) {
+    const abbr = m[1];
+    const before = text.slice(Math.max(0, m.index - 80), m.index).replace(/[\s.:;,]+$/, '');
+    const toks = [...before.matchAll(/[A-Za-z][A-Za-z0-9\/]*/g)];
+    const letters = abbr.replace(/[^A-Za-z]/g, '').toLowerCase();
+    if (!letters || toks.length < letters.length) continue;
+    const take = toks.slice(-letters.length);
+    if (take.map((t) => t[0][0].toLowerCase()).join('') === letters) {
+      found[abbr] = before.slice(take[0].index).replace(/\s+/g, ' ');
+    }
+  }
+  return found;
+}
+
+/* ---------- merge OJTI + MOI -> model ---------- */
+let rowSeq = 0;
+function newRow(o) { return Object.assign({ id: ++rowSeq, src: 'New', whatEn: '', whatMs: '', howEn: '', howMs: '', whyEn: '', whyMs: '', pic: '' }, o); }
+
+function buildModel(ojti, moi) {
+  const warnings = [];
+  const M = {
+    equip: '', site: 'Melaka', docNo: '', version: 'A', purpose: '', scope: '', esh: '', defs: '', refs: '', tools: '', cal: '', appendix: '',
+    rows: [], moiLines: [], unknownTerms: [], warnings, found: { ojti: !!ojti, moi: !!moi },
+  };
+  const allText = [ojti, moi].filter(Boolean).map((d) => d.blocks.map(blockText).join('\n') + '\n' + d.hf).join('\n');
+
+  /* equipment + site */
+  let equip = '';
+  const t1 = (moi ? moi.blocks.map(blockText).join('\n') + '\n' + moi.hf : '').match(/Machine Operating Instruction for ([^\n|*]+?)(?:\s{2,}|\n|\||$)/i);
+  if (t1) equip = t1[1].trim();
+  if (!equip && ojti) {
+    const t2 = (ojti.blocks.map(blockText).join('\n') + '\n' + ojti.hf).match(/OJTI for (.+?)(?:\s+machine)?(?:\s+Q\d{6,}|\s*\||\n|$)/i);
+    if (t2) equip = t2[1].trim();
+  }
+  M.equip = equip;
+  const site = allText.match(/\b(Batam|Melaka|Singapore|Wuxi)\b/i);
+  if (site) M.site = sentenceCase(site[1].toLowerCase());
+
+  /* ----- OJTI ----- */
+  let oSec = {};
+  if (ojti) {
+    oSec = walkSections(ojti.blocks, (n) => ojtiKey(n));
+    const tbl = ojti.blocks.find((b) => {
+      if (b.type !== 'tbl' || b.rows.length < 2) return false;
+      const head = b.rows[0].map((c) => c.join(' ').toLowerCase()).join(' | ');
+      return /key points/.test(head) || (/\bhow\b|bagaimana/.test(head) && /\bwhy\b|mengapa/.test(head));
+    });
+    if (!tbl) warnings.push('OJTI: no step table (Main Steps / Key Points / Reason / Picture) was found. Add the steps manually in the Procedure section.');
+    else {
+      const head = tbl.rows[0].map((c) => c.join(' ').toLowerCase());
+      const find = (rx, def) => { const i = head.findIndex((h) => rx.test(h)); return i >= 0 ? i : def; };
+      const ci = { what: find(/main step|\bwhat\b|apa/, 0), how: find(/key point|\bhow\b/, 1), why: find(/reason|\bwhy\b/, 2), pic: find(/picture|gambar/, 3) };
+      for (const r of tbl.rows.slice(1)) {
+        const g = (i) => (r[i] || []);
+        if (![0, 1, 2, 3].some((i) => g(i).length)) continue;
+        const what = splitLang(g(ci.what)), how = splitLang(g(ci.how)), why = splitLang(g(ci.why));
+        M.rows.push(newRow({
+          src: 'OJTI', whatEn: what.en.join('\n'), whatMs: what.ms.join('\n'), howEn: how.en.join('\n'), howMs: how.ms.join('\n'),
+          whyEn: why.en.join('\n'), whyMs: why.ms.join('\n'), pic: picNote(g(ci.pic)),
+        }));
+      }
+      const noMs = M.rows.filter((r) => r.howEn && !r.howMs).length;
+      if (noMs) warnings.push(`OJTI: ${noMs} step(s) have no Malay text (shown empty in blue boxes). Check whether the Malay was missing in the OJTI or could not be separated.`);
+      M.rows.forEach((r, i) => { if (/\bsteps?\s+\d+\.\d+/i.test(r.howEn)) warnings.push(`OJTI row ${i + 1}: refers to "${(r.howEn.match(/steps?\s+\d+\.\d+(?:\s*(?:and|to|-)\s*\d+\.\d+)?/i) || [''])[0]}". Step numbers change in the WI, so update this text.`); });
+    }
+  }
+
+  /* ----- MOI ----- */
+  let mSec = {};
+  if (moi) {
+    mSec = walkSections(moi.blocks, (n) => moiKey(n));
+    const need = ['purpose', 'scope', 'safety', 'waste'].filter((k) => !mSec[k]);
+    if (need.length) warnings.push('MOI: could not find the section(s): ' + need.join(', ') + '. Fill them in below if needed.');
+  }
+
+  /* purpose */
+  let purpose = plines(mSec.purpose).join(' ');
+  if (purpose) purpose = purpose.replace(/^To\s+/, 'This document is to ');
+  else if (ojti && oSec.desc) purpose = splitLang(plines(oSec.desc)).en.join(' ');
+  M.purpose = purpose;
+
+  /* scope */
+  const scope = [`This work instruction is applied to ${M.site} Failure Analysis Laboratory.`];
+  const sc = plines(mSec.scope).join(' ');
+  if (sc) scope.push(sc);
+  const aud = splitLang(plines(oSec.audience)).en.join(' ');
+  const hrs = splitLang(plines(oSec.hours)).en.join(' ');
+  if (aud) scope.push(`Target audience: ${aud}`);
+  if (hrs) scope.push(`On-the-job training time: ${hrs}`);
+  M.scope = scope.join('\n');
+
+  /* ESH */
+  const esh = []; // {title, lines}
+  const addSec = (title) => { let s = esh.find((x) => x.title.toLowerCase() === title.toLowerCase()); if (!s) { s = { title, lines: [] }; esh.push(s); } return s; };
+  const known = () => esh.flatMap((s) => s.lines).join('\n');
+  const addLine = (s, text) => {
+    const nums = text.match(DOCNO) || [];
+    const existing = known();
+    if (nums.some((n) => existing.includes(n))) return;
+    if (esh.flatMap((x) => x.lines).some((l) => sim(l, text) >= 0.7)) return;
+    s.lines.push(text);
+  };
+  if (mSec.safety) {
+    let cur = addSec('Safety');
+    let preUsed = false;
+    for (const b of mSec.safety) {
+      if (b.type !== 'p') continue;
+      for (const raw of b.lines) {
+        const n = headNorm(raw);
+        if (SAFETY_SUB.test(n)) { cur = addSec(sentenceCase(stripNum(raw).replace(/[\s:.]+$/, ''))); if (n === 'additional information') cur.title = 'Risk and hazard assessment'; continue; }
+        const t = stripNum(raw);
+        if (t) { cur.lines.push(t); if (cur.title === 'Safety') preUsed = true; }
+      }
+    }
+    if (!preUsed) { const i = esh.findIndex((s) => s.title === 'Safety'); if (i >= 0) esh.splice(i, 1); }
+    const att = esh.findIndex((s) => /attachment/i.test(s.title) && !s.lines.length); if (att >= 0) esh.splice(att, 1);
+  }
+  if (ojti) {
+    const oSafe = splitLang(plines(oSec.safety)).en;
+    if (oSafe.length) {
+      const auth = addSec('Authorization');
+      oSafe.forEach((l) => (/refer/i.test(l) || DOCNO.test(l) ? addLine(addSec('Risk and hazard assessment'), l) : addLine(auth, l)));
+      DOCNO.lastIndex = 0;
+    }
+    const imp = splitLang(plines(oSec.impact)).en;
+    if (imp.length) { const p = addSec('Precautions'); imp.forEach((l) => addLine(p, l)); }
+    const rea = splitLang(plines(oSec.reaction)).en;
+    if (rea.length) { const e = esh.find((s) => /^emergency/i.test(s.title)) || addSec('Reaction plan'); rea.forEach((l) => addLine(e, l)); }
+  }
+  const ensure = esh.filter((s) => s.lines.length || /chemical/i.test(s.title));
+  const hasChem = ensure.some((s) => /chemical/i.test(s.title));
+  let eshText = ensure.map((s) => {
+    const body = s.lines.length > 1 ? s.lines.map((l) => '- ' + l) : s.lines;
+    return ['## ' + s.title, ...body].join('\n');
+  }).join('\n');
+  if (!hasChem && esh.length) eshText += '\n## Chemical\nNot applicable.';
+  /* waste */
+  const wasteBlocks = mSec.waste || (ojti ? oSec.waste : null);
+  if (wasteBlocks) {
+    const w = ['## Waste disposal'];
+    let sawTable = false;
+    for (const b of wasteBlocks) {
+      if (b.type === 'p') b.lines.map(stripNum).filter((l) => l && !/^(solid|liquid) waste$/i.test(l.replace(/[:.]$/, ''))).forEach((l) => w.push(l));
+      else if (b.type === 'tbl' && !(sawTable && !mSec.waste)) { const tm = tableMarkup(b.rows); if (tm.length) { w.push(...tm); sawTable = true; } }
+    }
+    if (w.length > 1) eshText += (eshText ? '\n' : '') + w.join('\n');
+  }
+  const liq = ojti ? splitLang(plines(oSec.liquid)).en.join(' ') : '';
+  if (liq && !/liquid/i.test(eshText)) eshText += `\nLiquid waste: ${liq}`;
+  M.esh = eshText;
+
+  /* references */
+  const refItems = [];
+  const rawRefs = [...plines(mSec.related), ...splitLang(plines(oSec.related)).en];
+  for (const l of rawRefs) {
+    if (/machine operating instruction|on-the-job|\bojti\b|\bmoi\b/i.test(l)) continue;
+    const nums = l.match(DOCNO) || [];
+    const title = l.replace(DOCNO, '').replace(/[\[\]()]/g, '').replace(/^[\s–—\-:]+|[\s–—\-:.]+$/g, '').replace(/\s*[–—-]\s*$/, '').trim();
+    refItems.push({ num: nums[0] || '', title, raw: l });
+  }
+  const outRefs = [];
+  for (const r of refItems) {
+    const dup = outRefs.find((o) => (r.num && o.num === r.num) || sim(o.title, r.title) >= 0.85);
+    if (dup) {
+      if (r.num && dup.num && r.num !== dup.num) {
+        dup.conflict = dup.conflict || [dup.num]; dup.conflict.push(r.num);
+        warnings.push(`References: "${r.title}" has two different document numbers (${dup.conflict.join(' / ')}). Confirm which one is current.`);
+      } else if (r.num && !dup.num) dup.num = r.num;
+      continue;
+    }
+    outRefs.push({ ...r });
+  }
+  M.refs = outRefs.map((o) => {
+    if (o.conflict) return o.conflict.map((n) => `- ${n} – ${o.title} [[confirm which number is current]]`).join('\n');
+    return '- ' + (o.num ? `${o.num} – ${o.title}` : o.title);
+  }).join('\n');
+
+  /* tools & materials */
+  const eqp = plines(mSec.equipment).join(', ').replace(/\.$/, '');
+  const mats = [];
+  for (const l of [...plines(mSec.material), ...splitLang(plines(oSec.tools)).en]) {
+    const t = l.replace(/[.;]+$/, '');
+    if (!t) continue;
+    if (eqp && sim(t, eqp) >= 0.6) continue;
+    if (mats.some((m) => sim(m, t) >= 0.6)) continue;
+    mats.push(t);
+  }
+  const eq2 = eqp || (ojti ? splitLang(plines(oSec.tools)).en[0] || '' : '');
+  M.tools = [eq2 ? `Equipment: ${eq2}.` : '', mats.length ? 'Materials:' : '', ...mats.map((m) => '- ' + m)].filter(Boolean).join('\n');
+
+  /* calibration / PM */
+  M.cal = plines(mSec.maintenance).map((l) => '- ' + l).join('\n');
+
+  /* MOI workflow: reference lines + appendix tables */
+  if (mSec.workflow) {
+    let lastCaption = '';
+    const used = new Set();
+    const app = [];
+    for (const b of mSec.workflow) {
+      if (b.type === 'p') {
+        for (const raw of b.lines) {
+          const t = stripNum(raw).replace(/^step\s*\d+\s*:\s*/i, '').trim();
+          if (!t || /^one point lesson/i.test(t)) continue;
+          M.moiLines.push(t);
+          if (t.length < 70) lastCaption = t;
+        }
+      } else if (b.type === 'tbl') {
+        const tm = tableMarkup(b.rows);
+        if (tm.length < 2) continue;
+        let cap = lastCaption.replace(/[.:]+$/, '').trim() || 'Table';
+        if (used.has(cap.toLowerCase())) cap += ' (continued)';
+        used.add(cap.toLowerCase());
+        app.push(`## ${sentenceCase(cap)}\n${tm.join('\n')}`);
+      }
+    }
+    M.appendix = app.join('\n');
+  }
+
+  /* definitions */
+  const abbr = findAbbreviations(allText);
+  const defs = [];
+  const seen = new Set();
+  const addDef = (k, v) => { if (!seen.has(k)) { seen.add(k); defs.push(`${k} | ${v}`); } };
+  const corpus = allText + '\n' + [M.purpose, M.scope, M.esh, M.refs, M.tools, M.cal, M.appendix, ...M.rows.map((r) => r.howEn + ' ' + r.whatEn)].join('\n');
+  const tokens = new Set([...(corpus.match(/\b(?:[A-Z]{2,6}|5S|Cal)\b/g) || [])]);
+  if (/\bgf\b|\bkgf\b/.test(corpus)) tokens.add('gf');
+  for (const k of Object.keys(abbr)) tokens.add(k);
+  const noise = new Set(['OK', 'NA', 'XY', 'ID', 'AUTO', 'SPC', 'ISO', 'IEC', 'DMS', 'GK', 'GE', 'MA', 'PI', 'PDF', 'EN', 'MS', 'AG', 'AL', 'CU', 'AU', 'RMU2', 'JOB', 'TEST', 'NEW', 'LOCK', 'PARK', 'XYZTEC', 'CONDOR', 'SIGMA']);
+  const order = [...tokens].sort();
+  for (const k of order) {
+    if (k === 'gf') { addDef('gf / kgf', 'Gram-force / kilogram-force (unit of force)'); continue; }
+    if (abbr[k]) addDef(k, sentenceCase(abbr[k]));
+    else if (GLOSSARY[k]) addDef(k, GLOSSARY[k]);
+    else if (!noise.has(k) && !/^[A-Z]{1}\d/.test(k)) M.unknownTerms.push(k);
+  }
+  M.defs = defs.join('\n');
+  M.unknownTerms = M.unknownTerms.filter((k) => !/^(OJT|WI|MOI|OJTI|SWI|RHA|FA|ESD|PM|PIC|PC|LED|CSV|FOV)$/.test(k));
+  if (M.unknownTerms.length) warnings.push('Abbreviations found but not defined: ' + M.unknownTerms.join(', ') + '. Add meanings in section 4 if they should be listed.');
+
+  if (!M.rows.length) M.rows.push(newRow({}));
+  return M;
+}
+
+/* ---------- WI writer (WordprocessingML) ---------- */
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function rPr(o = {}) {
+  let x = '';
+  if (o.b) x += '<w:b/>';
+  if (o.i) x += '<w:i/>';
+  if (o.color) x += `<w:color w:val="${o.color}"/>`;
+  if (o.sz) x += `<w:sz w:val="${o.sz}"/><w:szCs w:val="${o.sz}"/>`;
+  if (o.hl) x += '<w:highlight w:val="yellow"/>';
+  return x ? `<w:rPr>${x}</w:rPr>` : '';
+}
+function run(t, o = {}) {
+  if (t === '' || t == null) return '';
+  const parts = String(t).split('\t');
+  return parts.map((s, i) => `<w:r>${rPr(o)}${i ? '<w:tab/>' : ''}<w:t xml:space="preserve">${esc(s)}</w:t></w:r>`).join('');
+}
+function runsHl(t, o = {}) {
+  return String(t).split(/(\[\[.+?\]\])/).filter(Boolean).map((s) => (/^\[\[.+\]\]$/.test(s) ? run(s.slice(2, -2), { ...o, hl: true }) : run(s, o))).join('');
+}
+function para(inner, p = {}) {
+  let pp = '';
+  if (p.style) pp += `<w:pStyle w:val="${p.style}"/>`;
+  if (p.keepNext) pp += '<w:keepNext/>';
+  if (p.num) pp += '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>';
+  if (p.border) pp += '<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="4" w:color="000000"/></w:pBdr>';
+  if (p.tabs) pp += `<w:tabs>${p.tabs}</w:tabs>`;
+  if (p.after != null || p.before != null) pp += `<w:spacing${p.before != null ? ` w:before="${p.before}"` : ''}${p.after != null ? ` w:after="${p.after}"` : ''}/>`;
+  if (p.ind) pp += `<w:ind w:left="${p.ind}"/>`;
+  if (p.jc) pp += `<w:jc w:val="${p.jc}"/>`;
+  return `<w:p>${pp ? `<w:pPr>${pp}</w:pPr>` : ''}${inner}</w:p>`;
+}
+const B = '<w:top w:val="single" w:sz="4" w:space="0" w:color="808080"/><w:left w:val="single" w:sz="4" w:space="0" w:color="808080"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="808080"/><w:right w:val="single" w:sz="4" w:space="0" w:color="808080"/>';
+function tc(w, inner, o = {}) {
+  return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/>${o.span ? `<w:gridSpan w:val="${o.span}"/>` : ''}${o.fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.fill}"/>` : ''}</w:tcPr>${inner || para('')}</w:tc>`;
+}
+function tbl(cols, rowsXml) {
+  const sum = cols.reduce((a, b) => a + b, 0);
+  return `<w:tbl><w:tblPr><w:tblW w:w="${sum}" w:type="dxa"/><w:tblBorders>${B}<w:insideH w:val="single" w:sz="4" w:space="0" w:color="808080"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="808080"/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="50" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${cols.map((c) => `<w:gridCol w:w="${c}"/>`).join('')}</w:tblGrid>${rowsXml}</w:tbl>`;
+}
+const tr = (cells, o = {}) => `<w:tr><w:trPr><w:cantSplit/>${o.header ? '<w:tblHeader/>' : ''}</w:trPr>${cells}</w:tr>`;
+const CW = 10106;
+const GREY = 'D9D9D9', LIGHT = 'F2F2F2', BLUE = '0000FF';
+
+function lines(s) { return String(s || '').split('\n').map((x) => x.trim()).filter(Boolean); }
+function cellParas(txt, o = {}) { const ls = lines(txt); return ls.length ? ls.map((l) => para(runsHl(l, { sz: 18, ...o }), { after: 60 })).join('') : ''; }
+
+function mdTable(rowsTxt) {
+  const rows = rowsTxt.map((l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())).filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c) || c === '' ));
+  const n = Math.max(...rows.map((r) => r.length));
+  const weights = [];
+  for (let c = 0; c < n; c++) weights.push(Math.min(60, Math.max(8, Math.max(...rows.map((r) => (r[c] || '').length)))) );
+  const tot = weights.reduce((a, b) => a + b, 0);
+  let cols = weights.map((w) => Math.max(900, Math.round((w / tot) * CW)));
+  const diff = CW - cols.reduce((a, b) => a + b, 0); cols[cols.length - 1] += diff;
+  const xml = rows.map((r, ri) => tr(cols.map((w, ci) => tc(w, para(runsHl(r[ci] || '', { sz: 18, b: ri === 0 }), { after: 40 }), { fill: ri === 0 ? GREY : null })).join(''), { header: ri === 0 })).join('');
+  return tbl(cols, xml) + para('', { after: 60 });
+}
+
+function markup(text, ctx, o = {}) {
+  const out = [];
+  const ls = String(text || '').split('\n');
+  let h2 = 0;
+  for (let i = 0; i < ls.length; i++) {
+    const l = ls[i].trim();
+    if (!l) continue;
+    if (l.startsWith('|')) {
+      const grp = [l];
+      while (i + 1 < ls.length && ls[i + 1].trim().startsWith('|')) grp.push(ls[++i].trim());
+      out.push(mdTable(grp));
+    } else if (l.startsWith('## ')) {
+      h2++;
+      const t = (o.prefix ? o.prefix(h2) : '') + l.slice(3).trim();
+      ctx.toc.push({ lvl: 2, text: t });
+      out.push(para(run(t, { b: true, sz: 22 }), { style: 'Heading2', keepNext: true }));
+    } else if (/^[-•]\s+/.test(l)) out.push(para(runsHl(l.replace(/^[-•]\s+/, '')), { num: true, after: 60 }));
+    else out.push(para(runsHl(l), { after: 100 }));
+  }
+  return out.join('');
+}
+
+function numbering(rows) {
+  const out = []; let g = 0, k = 0;
+  rows.forEach((r, i) => {
+    if (i === 0 || r.whatEn.trim() || r.whatMs.trim()) { g++; k = 1; } else k++;
+    out.push(`${g}.${k}`);
+  });
+  return out;
+}
+
+function buildDocumentXml(S) {
+  const ctx = { toc: [] };
+  const equip = S.equip.trim() || 'Equipment';
+  const parts = [];
+  const H1 = (t) => { ctx.toc.push({ lvl: 1, text: t }); return para(run(t, { b: true, sz: 24 }), { style: 'Heading1', keepNext: true }); };
+  const H2 = (t) => { ctx.toc.push({ lvl: 2, text: t }); return para(run(t, { b: true, sz: 22 }), { style: 'Heading2', keepNext: true }); };
+
+  const MAR = '<w:pgMar w:top="900" w:right="900" w:bottom="1500" w:left="900" w:header="400" w:footer="400" w:gutter="0"/>';
+  const sectPr = (land) => `<w:sectPr><w:footerReference w:type="default" r:id="${land ? 'rId5' : 'rId4'}"/>${land ? '<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>' : '<w:pgSz w:w="11906" w:h="16838"/>'}${MAR}</w:sectPr>`;
+  const sectBreak = (land) => `<w:p><w:pPr><w:spacing w:after="0"/>${sectPr(land)}</w:pPr></w:p>`;
+  const body = [];
+  body.push(H1('1. PURPOSE'), markup(S.purpose, ctx));
+  body.push(H1('2. SCOPE'), markup(S.scope, ctx));
+  body.push(H1('3. ENVIRONMENTAL, SAFETY AND HEALTH ASPECTS'), markup(S.esh, ctx, { prefix: (n) => `3.${n} ` }));
+  body.push(H1('4. DEFINITION'));
+  const dRows = lines(S.defs).map((l) => l.split('|').map((x) => x.trim()));
+  if (dRows.length) body.push(mdTable(['| Term | Meaning |', ...dRows.map((r) => `| ${r[0] || ''} | ${r.slice(1).join(' / ')} |`)]).replace(/<w:gridCol w:w="\d+"\/>/g, (m, off) => m));
+  body.push(H1('5. REFERENCE'), markup(S.refs, ctx));
+  body.push(sectBreak(false)); /* portrait section ends; 6.1 is landscape */
+  body.push(H1('6. PROCEDURE'), H2('6.1 Basic operating procedure (for technician/engineer)'));
+  const pc = [700, 2400, 5200, 3600, 3138]; /* landscape content width 15038 */
+  const hdr = (en, ms) => para(run(en, { b: true, sz: 18 }), { after: 40 }) + (ms ? para(run(ms, { b: true, sz: 18, color: BLUE }), { after: 40 }) : '');
+  let rowsXml = tr([
+    tc(pc[0], hdr('S.No'), { fill: GREY }), tc(pc[1], hdr('Main Steps (What)', 'Langkah Utama (Apa)'), { fill: GREY }),
+    tc(pc[2], hdr('Key Points (How)', 'Perkara Utama (Bagaimana)'), { fill: GREY }), tc(pc[3], hdr('Reason for Key Points (Why)', 'Sebab Perkara Utama (Mengapa)'), { fill: GREY }),
+    tc(pc[4], hdr('Picture', 'Gambar'), { fill: GREY }),
+  ].join(''), { header: true });
+  const nums = numbering(S.rows);
+  S.rows.forEach((r, i) => {
+    const first = i === 0 || r.whatEn.trim() || r.whatMs.trim();
+    const what = (r.whatEn.trim() || r.whatMs.trim()) ? lines(r.whatEn).map((l) => para(runsHl(l, { b: true, sz: 18 }), { after: 60 })).join('') + lines(r.whatMs).map((l) => para(runsHl(l, { b: true, sz: 18, color: BLUE }), { after: 60 })).join('') : '';
+    const pic = para(run(r.pic.trim() ? `[Picture: ${r.pic.trim()}]` : '[Insert picture]', { i: true, color: '7F7F7F', sz: 16 }), { after: 40 });
+    rowsXml += tr([
+      tc(pc[0], para(run(nums[i], { sz: 18 }), { after: 40 })),
+      tc(pc[1], what, { fill: first && what ? LIGHT : null }),
+      tc(pc[2], cellParas(r.howEn) + cellParas(r.howMs, { color: BLUE })),
+      tc(pc[3], cellParas(r.whyEn) + cellParas(r.whyMs, { color: BLUE })),
+      tc(pc[4], pic),
+    ].join(''));
+  });
+  body.push(tbl(pc, rowsXml), sectBreak(true)); /* landscape section ends; rest is portrait */
+  body.push(H2('6.2 Tools and materials used'), markup(S.tools, ctx));
+  body.push(H2('6.3 Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, ctx));
+  body.push(H1('7. APPENDIX'), markup(S.appendix, ctx, { prefix: (n) => `A${n}. ` }));
+
+  /* title + contents */
+  parts.push(para(run('Work Instruction', { b: true, sz: 40 }), { after: 60 }));
+  parts.push(para(run(`Work Instruction for ${equip}`, { b: true, sz: 26 }), { after: 240, border: true }));
+  parts.push(para(run('CONTENTS', { b: true, sz: 22 }), { after: 120 }));
+  const entries = ctx.toc;
+  entries.forEach((e, i) => {
+    const style = e.lvl === 1 ? 'TOC1' : 'TOC2';
+    const pre = i === 0 ? '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> TOC \\o "1-2" \\h \\z \\u </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>' : '';
+    const post = i === entries.length - 1 ? '<w:r><w:fldChar w:fldCharType="end"/></w:r>' : '';
+    parts.push(`<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr>${pre}${run(e.text)}${run('\t')}${post}</w:p>`);
+  });
+  parts.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+  parts.push(...body);
+  const sect = sectPr(false);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="${WNS}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${parts.join('')}${sect}</w:body></w:document>`;
+}
+
+function footerXml(S, wide) {
+  const fw = wide ? [4900, 2200, 2200, 2500, 3238] : [3300, 1500, 1500, 1700, 2106];
+  const CWL = wide ? 15038 : CW;
+  const c = (w, t, o = {}) => tc(w, para(typeof t === 'string' ? run(t, { sz: 15, b: o.b }) : t.xml, { after: 0 }), { span: o.span, fill: o.fill });
+  const fld = (instr) => `<w:r><w:rPr><w:b/><w:sz w:val="15"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:b/><w:sz w:val="15"/></w:rPr><w:instrText xml:space="preserve"> ${instr} </w:instrText></w:r><w:r><w:rPr><w:b/><w:sz w:val="15"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:rPr><w:b/><w:sz w:val="15"/></w:rPr><w:t>1</w:t></w:r><w:r><w:rPr><w:b/><w:sz w:val="15"/></w:rPr><w:fldChar w:fldCharType="end"/></w:r>`;
+  const rows = [
+    tr(c(CWL, run(`Work Instruction for ${S.equip.trim() || 'Equipment'}`, { b: true, sz: 17 }) && { xml: run(`Work Instruction for ${S.equip.trim() || 'Equipment'}`, { b: true, sz: 17 }) }, { span: 5, fill: GREY })),
+    tr(['Confidentiality', 'Document number', 'Version', 'Last modified:', 'Pages'].map((t, i) => c(fw[i], t, { b: true })).join('')),
+    tr(c(fw[0], 'Restricted') + c(fw[1], S.docNo.trim() || 'To be assigned') + c(fw[2], S.version.trim() || 'A') + c(fw[3], 'In DMS') + c(fw[4], { xml: fld('PAGE') + run(' / ', { sz: 15, b: true }) + fld('NUMPAGES') })),
+    tr(c(CWL, 'Template: Z8F80956201, version A   If printed: For information only / No update service', { span: 5 })),
+    tr(c(CWL, 'For Internal Use Only', { span: 5 })),
+  ].join('');
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="${WNS}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${tbl(fw, rows)}${para('', { after: 0 })}</w:ftr>`;
+}
+
+const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="${WNS}"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="en-GB"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="100" w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
+<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="280" w:after="120"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="100"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TOC1"><w:name w:val="toc 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="39"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="10106"/></w:tabs><w:spacing w:after="60"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="TOC2"><w:name w:val="toc 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="39"/><w:pPr><w:tabs><w:tab w:val="right" w:leader="dot" w:pos="10106"/></w:tabs><w:spacing w:after="60"/><w:ind w:left="400"/></w:pPr></w:style>
+</w:styles>`;
+const NUMBERING = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:numbering xmlns:w="${WNS}"><w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="540" w:hanging="270"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/></w:rPr></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`;
+const SETTINGS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="${WNS}"><w:defaultTabStop w:val="720"/><w:updateFields w:val="true"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+const CT = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/word/footer2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+const RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+const DOCRELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer2.xml"/></Relationships>`;
+
+async function buildWiBlob(S) {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', CT);
+  zip.file('_rels/.rels', RELS);
+  zip.file('word/document.xml', buildDocumentXml(S));
+  zip.file('word/_rels/document.xml.rels', DOCRELS);
+  zip.file('word/styles.xml', STYLES);
+  zip.file('word/numbering.xml', NUMBERING);
+  zip.file('word/settings.xml', SETTINGS);
+  zip.file('word/footer1.xml', footerXml(S, false));
+  zip.file('word/footer2.xml', footerXml(S, true));
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE' });
+}
+
+</script>
+<script>
+/* ===== UI ===== */
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (v === true) el.setAttribute(k, '');
+      else if (v !== false && v != null) el.setAttribute(k, v);
+    }
+    for (const kid of kids.flat()) { if (kid == null || kid === false) continue; el.append(kid.nodeType ? kid : document.createTextNode(kid)); }
+    return el;
+  }
+  const grow = (ta) => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight + 2, 560) + 'px'; };
+
+  const files = { ojti: null, moi: null };
+  let S = null;
+
+  /* ---------- upload ---------- */
+  function dropzone(key, title, hint) {
+    const input = h('input', { type: 'file', id: 'f-' + key, accept: '.docx', class: 'file-in' });
+    const name = h('span', { class: 'fname', text: 'No file chosen' });
+    const box = h('label', { class: 'drop', for: 'f-' + key }, h('span', { class: 'drop-title', text: title }), h('span', { class: 'drop-hint', text: hint }), name);
+    const set = (f) => {
+      if (!f) return;
+      if (!/\.docx$/i.test(f.name)) { setStatus('Only Word (.docx) files can be read. Save the file as .docx and try again.', 'warn'); return; }
+      files[key] = f; name.textContent = f.name; box.classList.add('has'); $('#go').disabled = !(files.ojti || files.moi);
+    };
+    input.addEventListener('change', () => set(input.files[0]));
+    ['dragenter', 'dragover'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.remove('over'); }));
+    box.addEventListener('drop', (e) => set(e.dataTransfer.files[0]));
+    return h('div', { class: 'dz' }, input, box);
+  }
+
+  function setStatus(msg, kind) {
+    const s = $('#status');
+    s.textContent = msg || '';
+    s.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  async function readFiles() {
+    setStatus('Reading files…');
+    $('#go').disabled = true;
+    try {
+      const o = files.ojti ? await readDocx(files.ojti) : null;
+      const m = files.moi ? await readDocx(files.moi) : null;
+      S = buildModel(o, m);
+      renderReview();
+      $('#s-review').hidden = false;
+      setStatus('');
+      $('#s-review').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      console.error(e);
+      setStatus('Could not read the files: ' + (e && e.message ? e.message : e), 'warn');
+    }
+    $('#go').disabled = !(files.ojti || files.moi);
+  }
+
+  /* ---------- review ---------- */
+  function field(labelText, key, opts = {}) {
+    const id = 'fld-' + key;
+    const ctl = opts.tag === 'select'
+      ? h('select', { id }, opts.options.map((o) => h('option', { value: o, text: o })))
+      : opts.tag === 'textarea'
+        ? h('textarea', { id, rows: opts.rows || 3, spellcheck: 'true' })
+        : h('input', { id, type: 'text', placeholder: opts.placeholder || '' });
+    ctl.value = S[key];
+    ctl.addEventListener('input', () => { S[key] = ctl.value; if (ctl.tagName === 'TEXTAREA') grow(ctl); });
+    if (ctl.tagName === 'SELECT') ctl.addEventListener('change', () => { S[key] = ctl.value; });
+    queueMicrotask(() => ctl.tagName === 'TEXTAREA' && grow(ctl));
+    return h('div', { class: 'field' }, h('label', { for: id, text: labelText }), opts.hint ? h('p', { class: 'hint', text: opts.hint }) : null, ctl);
+  }
+  function section(title, open, ...body) {
+    const d = h('details', { class: 'sec' }, h('summary', {}, title), h('div', { class: 'sec-body' }, ...body));
+    if (open) d.open = true;
+    d.addEventListener('toggle', () => d.querySelectorAll('textarea').forEach(grow));
+    return d;
+  }
+
+  function renderReview() {
+    const root = $('#review');
+    root.textContent = '';
+    const w = S.warnings;
+    root.append(
+      h('div', { class: 'summary' },
+        h('p', { class: 'lead' }, `${S.rows.filter((r) => r.src === 'OJTI').length} procedure steps read from the OJTI. ${S.moiLines.length} lines of MOI workflow text are listed for reference.`),
+        w.length ? h('div', { class: 'warn' }, h('strong', { text: 'Check these first' }), h('ul', {}, w.map((x) => h('li', { text: x })))) : h('p', { class: 'okline', text: 'No problems found while reading. Review each section below anyway.' })),
+      section('Document details', true,
+        h('div', { class: 'grid2' },
+          field('Equipment name', 'equip', { placeholder: 'e.g. XYZTEC Condor Sigma Bond Tester' }),
+          field('Site', 'site', { tag: 'select', options: ['Batam', 'Melaka', 'Singapore', 'Wuxi'] }),
+          field('Document number', 'docNo', { placeholder: 'e.g. Z8F… (leave empty if not assigned)' }),
+          field('Version', 'version', { placeholder: 'A' }))),
+      h('details', { class: 'help' }, h('summary', {}, 'How to edit the text boxes'),
+        h('p', {}, 'Each line is one paragraph. Start a line with ', h('code', { text: '- ' }), ' for a bullet or ', h('code', { text: '## ' }), ' for a sub-heading (numbered automatically). Lines that start with ', h('code', { text: '|' }), ' make a table, with the first row as the header, like ', h('code', { text: '| Term | Meaning |' }), '. Put ', h('code', { text: '[[text]]' }), ' around anything that should be highlighted yellow for follow-up.')),
+      section('1. Purpose', false, field('Purpose', 'purpose', { tag: 'textarea', rows: 3 })),
+      section('2. Scope', false, field('Scope', 'scope', { tag: 'textarea', rows: 4 })),
+      section('3. Environmental, safety and health aspects', false, field('Safety, health, waste', 'esh', { tag: 'textarea', rows: 14, hint: 'Built from the MOI safety and waste sections plus the OJTI impact, reaction plan and safety items. Repeated items were removed.' })),
+      section('4. Definition', false, field('Terms (one per line: TERM | meaning)', 'defs', { tag: 'textarea', rows: 8 })),
+      section('5. Reference', false, field('Reference documents', 'refs', { tag: 'textarea', rows: 6 })),
+      procSection(),
+      section('6.2 Tools and materials used', false, field('Tools and materials', 'tools', { tag: 'textarea', rows: 7 })),
+      section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
+      section('7. Appendix (tables taken from the MOI)', false, field('Appendix', 'appendix', { tag: 'textarea', rows: 14, hint: 'Each "##" line is a table title (A1, A2…). Delete any table you do not need.' })),
+      h('div', { class: 'dl' },
+        h('button', { class: 'btn primary', id: 'dlbtn', type: 'button', onclick: download }, 'Download WI (.docx)'),
+        h('p', { class: 'hint', text: 'Pictures are not copied. Each Picture cell has a placeholder to replace in Word. When Word asks to update fields on opening, choose Yes so the contents page gets its page numbers.' }),
+        h('p', { id: 'dlstatus', class: 'status', role: 'status' })));
+  }
+
+  /* procedure editor */
+  const snoLabels = [];
+  function recalc() {
+    let g = 0, k = 0;
+    S.rows.forEach((r, i) => {
+      if (i === 0 || r.whatEn.trim() || r.whatMs.trim()) { g++; k = 1; } else k++;
+      if (snoLabels[i]) snoLabels[i].textContent = `${g}.${k}`;
+    });
+  }
+  function procSection() {
+    const list = h('div', { class: 'rows' });
+    const draw = () => {
+      list.textContent = '';
+      snoLabels.length = 0;
+      S.rows.forEach((r, i) => list.append(rowCard(r, i, draw)));
+      recalc();
+      list.querySelectorAll('textarea').forEach(grow);
+    };
+    draw();
+    const moi = S.moiLines.length ? h('details', { class: 'ref' }, h('summary', {}, `MOI workflow text for reference (${S.moiLines.length} lines)`),
+      h('p', { class: 'hint', text: 'Use this to find steps or notes that the OJTI table does not have. "Add as row" puts the line into a new step; then add its Malay text and reason.' }),
+      h('ul', { class: 'moi' }, S.moiLines.map((t) => h('li', {}, h('span', { text: t }), h('button', { class: 'btn small', type: 'button', onclick: () => { S.rows.push(newRow({ src: 'MOI', howEn: t })); draw(); list.lastChild.scrollIntoView({ block: 'center' }); } }, 'Add as row'))))) : null;
+    return section('6.1 Basic operating procedure', true,
+      h('p', { class: 'hint', text: 'English is the black text, Malay is the blue text. A row with a "Main step" starts a new numbered group; rows without one continue the group above. Several lines in a box become separate paragraphs.' }),
+      list, h('div', { class: 'row-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => { S.rows.push(newRow({})); draw(); list.lastChild.scrollIntoView({ block: 'center' }); } }, 'Add row')), moi);
+  }
+  function tf(r, key, label, ms) {
+    const id = `r${r.id}-${key}`;
+    const ta = h('textarea', { id, rows: 2, class: ms ? 'ms' : '', spellcheck: 'true', lang: ms ? 'ms' : 'en' });
+    ta.value = r[key];
+    ta.addEventListener('input', () => { r[key] = ta.value; grow(ta); if (key === 'whatEn' || key === 'whatMs') recalc(); });
+    return h('div', { class: 'tf' }, h('label', { for: id, text: label }), ta);
+  }
+  function rowCard(r, i, redraw) {
+    const sno = h('span', { class: 'sno' });
+    snoLabels[i] = sno;
+    const mv = (d) => { const j = i + d; if (j < 0 || j >= S.rows.length) return; [S.rows[i], S.rows[j]] = [S.rows[j], S.rows[i]]; redraw(); };
+    const ins = () => { S.rows.splice(i + 1, 0, newRow({})); redraw(); };
+    const del = () => { if (S.rows.length > 1) { S.rows.splice(i, 1); redraw(); } };
+    const pid = `r${r.id}-pic`;
+    const pic = h('input', { type: 'text', id: pid, placeholder: 'e.g. Lock button' });
+    pic.value = r.pic;
+    pic.addEventListener('input', () => { r.pic = pic.value; });
+    return h('div', { class: 'row-card' },
+      h('div', { class: 'row-head' }, h('span', { class: 'lbl', text: 'Step' }), sno, h('span', { class: 'tag ' + r.src.toLowerCase(), text: r.src === 'New' ? 'Added' : 'From ' + r.src }),
+        h('span', { class: 'sp' }),
+        h('button', { class: 'btn small', type: 'button', 'aria-label': 'Move up', onclick: () => mv(-1) }, 'Up'),
+        h('button', { class: 'btn small', type: 'button', 'aria-label': 'Move down', onclick: () => mv(1) }, 'Down'),
+        h('button', { class: 'btn small', type: 'button', onclick: ins }, 'Add below'),
+        h('button', { class: 'btn small danger', type: 'button', onclick: del }, 'Remove')),
+      h('div', { class: 'grid2' }, tf(r, 'whatEn', 'Main step (What), English'), tf(r, 'whatMs', 'Langkah utama (Apa), Malay', true)),
+      h('div', { class: 'grid2' }, tf(r, 'howEn', 'Key points (How), English'), tf(r, 'howMs', 'Perkara utama (Bagaimana), Malay', true)),
+      h('div', { class: 'grid2' }, tf(r, 'whyEn', 'Reason (Why), English'), tf(r, 'whyMs', 'Sebab (Mengapa), Malay', true)),
+      h('div', { class: 'tf' }, h('label', { for: pid, text: 'Picture placeholder text' }), pic));
+  }
+
+  /* ---------- download ---------- */
+  async function download() {
+    const st = $('#dlstatus');
+    const btn = $('#dlbtn');
+    btn.disabled = true;
+    st.className = 'status'; st.textContent = 'Building the Word file…';
+    try {
+      const blob = await buildWiBlob(S);
+      const base = (S.equip.trim() || 'Equipment').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const filename = `WI ${base}.docx`;
+      let dl = null;
+      if (window.claude && window.claude.use) { try { dl = await window.claude.use('downloads'); } catch (e) { dl = null; } }
+      if (dl) {
+        const res = await dl.save({ filename, data: blob });
+        st.textContent = res && res.status === 'saved' ? 'Saved. Open it in Word and replace the picture placeholders.' : 'Sent.';
+      } else if (!window.claude) {
+        const a = h('a', { href: URL.createObjectURL(blob), download: filename });
+        document.body.append(a); a.click(); a.remove();
+        st.textContent = 'Downloaded.';
+      } else {
+        st.className = 'status warn';
+        st.textContent = 'Saving files is not available in this view. Open the page in your browser from the shared link and try again.';
+      }
+    } catch (e) {
+      console.error(e);
+      st.className = 'status warn';
+      st.textContent = e && e.code === 'declined' ? 'Download cancelled.' : 'Could not create the file: ' + (e && e.message ? e.message : e);
+    }
+    btn.disabled = false;
+  }
+
+  /* ---------- boot ---------- */
+  $('#drops').append(
+    dropzone('ojti', 'OJTI', 'On-the-Job Training Instruction (.docx)'),
+    dropzone('moi', 'MOI', 'Machine Operating Instruction (.docx)'));
+  $('#go').addEventListener('click', readFiles);
+  window.__wi = { get state() { return S; }, readDocx, buildModel, buildWiBlob };
+})();
+
+</script>
+
+</body></html>
