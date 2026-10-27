@@ -595,12 +595,13 @@ function para(inner, p = {}) {
   if (p.keepNext) pp += '<w:keepNext/>';
   if (p.numId) pp += `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${p.numId}"/></w:numPr>`;
   if (p.tabs) pp += `<w:tabs>${p.tabs}</w:tabs>`;
-  if (p.after != null || p.before != null) pp += `<w:spacing${p.before != null ? ` w:before="${p.before}"` : ''}${p.after != null ? ` w:after="${p.after}"` : ''}/>`;
+  /* the template's defaults are 1.5 line spacing with 6pt before and after, so every paragraph written here sets its own spacing */
+  pp += `<w:spacing w:before="${p.before != null ? p.before : 0}" w:after="${p.after != null ? p.after : 0}" w:line="240" w:lineRule="auto"/>`;
   if (p.ind != null) pp += `<w:ind w:left="${p.ind}"${p.first != null ? ` w:firstLine="${p.first}"` : ''}${p.hang != null ? ` w:hanging="${p.hang}"` : ''}/>`;
   if (p.jc) pp += `<w:jc w:val="${p.jc}"/>`;
   return `<w:p>${pp ? `<w:pPr>${pp}</w:pPr>` : ''}${inner}</w:p>`;
 }
-const bodyP = (inner) => para(inner, { tabs: '<w:tab w:val="num" w:pos="567"/>', after: 100, ind: 567 });
+const bodyP = (inner) => para(inner, { tabs: '<w:tab w:val="num" w:pos="567"/>', after: 100, ind: 567, first: 0 });
 const bulletP = (inner) => para(inner, { style: 'ListParagraph', numId: 90, after: 60, ind: 927, hang: 360 });
 const cellP = (inner, o = {}) => para(inner, { after: o.after != null ? o.after : 60, ind: 0, first: 0, jc: o.jc });
 
@@ -656,7 +657,7 @@ function markup(text, ctx) {
       const grp = [l];
       while (i + 1 < ls.length && ls[i + 1].trim().startsWith('|')) grp.push(ls[++i].trim());
       out.push(mdTable(grp));
-    } else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, keepNext: true })); /* sub-labels stay out of the contents list, like the template */
+    } else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, first: 0, keepNext: true })); /* sub-labels stay out of the contents list, like the template */
     else if (/^[-•]\s+/.test(l)) out.push(bulletP(runsHl(l.replace(/^[-•]\s+/, ''))));
     else out.push(bodyP(runsHl(l)));
   }
@@ -675,7 +676,7 @@ function numbering(rows) {
 /* ---------- page setup (taken from the template: Letter, 1" margins) ---------- */
 const PGMAR = '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/><w:cols w:space="720"/><w:docGrid w:linePitch="360"/>';
 const sectPr = (land) => `<w:sectPr><w:headerReference w:type="default" r:id="rId8"/><w:footerReference w:type="default" r:id="${land ? 'rId12' : 'rId9'}"/>${land ? '<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/>' : '<w:pgSz w:w="12240" w:h="15840"/>'}${PGMAR}</w:sectPr>`;
-const sectBreak = (land) => `<w:p><w:pPr><w:spacing w:after="0"/>${sectPr(land)}</w:pPr></w:p>`;
+const sectBreak = (land) => `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>${sectPr(land)}</w:pPr></w:p>`;
 
 function procTable(S) {
   const pc = [800, 2600, 5000, 3200, 2632]; /* 14232 wide, same left edge as the template table */
