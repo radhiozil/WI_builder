@@ -577,7 +577,7 @@ function rPr(o = {}) {
   if (o.b) x += '<w:b/><w:bCs/>';
   if (o.i) x += '<w:i/>';
   if (o.color) x += `<w:color w:val="${o.color}"/>`;
-  const sz = o.sz || 24;
+  const sz = o.sz || 20;
   x += `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`;
   if (o.hl) x += '<w:highlight w:val="yellow"/>';
   return `<w:rPr>${x}</w:rPr>`;
@@ -596,12 +596,12 @@ function para(inner, p = {}) {
   if (p.numId) pp += `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${p.numId}"/></w:numPr>`;
   if (p.tabs) pp += `<w:tabs>${p.tabs}</w:tabs>`;
   if (p.after != null || p.before != null) pp += `<w:spacing${p.before != null ? ` w:before="${p.before}"` : ''}${p.after != null ? ` w:after="${p.after}"` : ''}/>`;
-  if (p.ind != null) pp += `<w:ind w:left="${p.ind}"${p.first != null ? ` w:firstLine="${p.first}"` : ''}/>`;
+  if (p.ind != null) pp += `<w:ind w:left="${p.ind}"${p.first != null ? ` w:firstLine="${p.first}"` : ''}${p.hang != null ? ` w:hanging="${p.hang}"` : ''}/>`;
   if (p.jc) pp += `<w:jc w:val="${p.jc}"/>`;
   return `<w:p>${pp ? `<w:pPr>${pp}</w:pPr>` : ''}${inner}</w:p>`;
 }
-const bodyP = (inner) => para(inner, { tabs: '<w:tab w:val="num" w:pos="567"/>', after: 100, ind: 1304 });
-const bulletP = (inner) => para(inner, { style: 'ListParagraph', numId: 90, after: 60 });
+const bodyP = (inner) => para(inner, { tabs: '<w:tab w:val="num" w:pos="567"/>', after: 100, ind: 567 });
+const bulletP = (inner) => para(inner, { style: 'ListParagraph', numId: 90, after: 60, ind: 927, hang: 360 });
 const cellP = (inner, o = {}) => para(inner, { after: o.after != null ? o.after : 60, ind: 0, first: 0, jc: o.jc });
 
 function tc(w, inner, o = {}) {
@@ -656,7 +656,7 @@ function markup(text, ctx) {
       const grp = [l];
       while (i + 1 < ls.length && ls[i + 1].trim().startsWith('|')) grp.push(ls[++i].trim());
       out.push(mdTable(grp));
-    } else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 1304, keepNext: true })); /* sub-labels stay out of the contents list, like the template */
+    } else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, keepNext: true })); /* sub-labels stay out of the contents list, like the template */
     else if (/^[-•]\s+/.test(l)) out.push(bulletP(runsHl(l.replace(/^[-•]\s+/, ''))));
     else out.push(bodyP(runsHl(l)));
   }
