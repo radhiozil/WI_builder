@@ -83,6 +83,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .row-head .sp { flex: 1; }
 .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .sno { font-family: var(--mono); font-weight: 500; font-size: 15px; font-variant-numeric: tabular-nums; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.thumb { border: 1px solid var(--line); border-radius: 6px; padding: 4px; background: var(--surface-2); display: flex; flex-direction: column; gap: 4px; align-items: center; max-width: 160px; }
+.thumb img { max-width: 150px; max-height: 110px; object-fit: contain; background: #fff; }
+.thumb .cap { font-size: 12px; color: var(--muted); }
+.thumb.noprev { padding: 8px 10px; font-size: 12px; color: var(--muted); }
 .tag { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); }
 .tag.moi { background: var(--accent-soft); color: var(--accent); }
 .tf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -150,25 +155,68 @@ function paraLines(p) {
   return lines.map((s) => s.replace(/[\s ]+/g, ' ').trim());
 }
 
-function tblRows(t) {
+
+/* ---------- pictures ---------- */
+const MEDIA_EXT = /\.(png|jpe?g|gif|bmp|emf|wmf|tiff?)$/i;
+function attrAny(el, name) { return el.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', name) || el.getAttribute('r:' + name); }
+function vmlSize(style) {
+  const g = (k) => { const m = new RegExp(k + '\\s*:\\s*([\\d.]+)\\s*(pt|in|cm|mm|px)?', 'i').exec(style || ''); if (!m) return 0; const v = parseFloat(m[1]); const u = (m[2] || 'pt').toLowerCase(); return Math.round(v * ({ pt: 12700, in: 914400, cm: 360000, mm: 36000, px: 9525 }[u])); };
+  return { cx: g('width'), cy: g('height') };
+}
+function paraImages(p, rels) {
+  const out = [];
+  if (!rels) return out;
+  (function walk(n) {
+    for (const c of n.childNodes) {
+      if (c.nodeType !== 1) continue;
+      const ln = c.localName;
+      if (ln === 'Fallback' || ln === 'del' || ln === 'moveFrom' || ln === 'object') continue; /* an embedded Excel/PowerPoint object only has a preview picture; it cannot be copied */ /* the same picture is stored twice inside AlternateContent */
+      if (ln === 'drawing') {
+        const blip = c.getElementsByTagNameNS('*', 'blip')[0];
+        const rid = blip && attrAny(blip, 'embed');
+        const target = rid && rels[rid];
+        if (target && MEDIA_EXT.test(target)) {
+          const ext = c.getElementsByTagNameNS('*', 'extent')[0];
+          const sr = c.getElementsByTagNameNS('*', 'srcRect')[0];
+          let crop = null;
+          if (sr) { const g = (k) => parseInt(sr.getAttribute(k) || '0', 10) || 0; const cr = { l: g('l'), t: g('t'), r: g('r'), b: g('b') }; if (cr.l || cr.t || cr.r || cr.b) crop = cr; }
+          out.push({ key: target, cx: ext ? parseInt(ext.getAttribute('cx'), 10) : 0, cy: ext ? parseInt(ext.getAttribute('cy'), 10) : 0, crop });
+        }
+      } else if (ln === 'imagedata') {
+        const target = rels[attrAny(c, 'id')];
+        if (target && MEDIA_EXT.test(target)) {
+          let sh = c.parentNode; const st = sh && sh.getAttribute && sh.getAttribute('style');
+          const sz = vmlSize(st);
+          out.push({ key: target, cx: sz.cx, cy: sz.cy, crop: null });
+        }
+      } else walk(c);
+    }
+  })(p);
+  return out;
+}
+
+function tblRows(t, rels) {
   return kids(t, 'tr').map((tr) => kids(tr, 'tc').map((tc) => {
     const lines = [];
+    const imgs = [];
     for (const c of tc.children) {
-      if (c.localName === 'p') lines.push(...paraLines(c));
-      else if (c.localName === 'tbl') for (const r of tblRows(c)) lines.push(r.map((x) => x.join(' ')).join(' '));
+      if (c.localName === 'p') { lines.push(...paraLines(c)); imgs.push(...paraImages(c, rels)); }
+      else if (c.localName === 'tbl') for (const r of tblRows(c, rels)) { lines.push(r.map((x) => x.join(' ')).join(' ')); r.forEach((x) => imgs.push(...(x.imgs || []))); }
     }
-    return lines.filter(Boolean);
+    const res = lines.filter(Boolean);
+    res.imgs = imgs;
+    return res;
   }));
 }
 
-function readBlocks(xmlDoc) {
+function readBlocks(xmlDoc, rels) {
   const body = xmlDoc.getElementsByTagNameNS(WNS, 'body')[0];
   const blocks = [];
   (function walk(n) {
     for (const c of n.children) {
       const ln = c.localName;
-      if (ln === 'p') blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean) });
-      else if (ln === 'tbl') blocks.push({ type: 'tbl', rows: tblRows(c) });
+      if (ln === 'p') blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean), imgs: paraImages(c, rels) });
+      else if (ln === 'tbl') blocks.push({ type: 'tbl', rows: tblRows(c, rels) });
       else if (ln === 'sdt') { const sc = kids(c, 'sdtContent')[0]; if (sc) walk(sc); }
       else if (ln === 'customXml' || ln === 'smartTag' || ln === 'ins') walk(c);
     }
@@ -185,14 +233,28 @@ async function readDocx(file) {
     if (d.getElementsByTagName('parsererror').length) throw new Error('The Word file could not be read.');
     return d;
   };
-  const blocks = readBlocks(parse(await docFile.async('string')));
+  const rels = {};
+  const relFile = zip.file('word/_rels/document.xml.rels');
+  if (relFile) {
+    for (const r of parse(await relFile.async('string')).getElementsByTagName('Relationship')) {
+      if (r.getAttribute('TargetMode') === 'External') continue;
+      let t = r.getAttribute('Target') || '';
+      if (/\/relationships\/image$/.test(r.getAttribute('Type') || '')) { t = t.replace(/^\/?(word\/)?/, ''); rels[r.getAttribute('Id')] = t; }
+    }
+  }
+  const blocks = readBlocks(parse(await docFile.async('string')), rels);
+  const media = {};
+  const want = new Set();
+  const collect = (arr) => arr.forEach((i) => want.add(i.key));
+  for (const b of blocks) { if (b.type === 'p') collect(b.imgs || []); else b.rows.forEach((r) => r.forEach((cl) => collect(cl.imgs || []))); }
+  for (const k of want) { const f = zip.file('word/' + k); if (f) media[k] = await f.async('uint8array'); }
   let hf = '';
   for (const name of Object.keys(zip.files)) {
     if (/^word\/(header|footer)\d*\.xml$/.test(name)) {
       try { hf += '\n' + readBlocks(parse(await zip.file(name).async('string'))).map(blockText).join('\n'); } catch (e) { /* ignore */ }
     }
   }
-  return { blocks, hf, name: file.name };
+  return { blocks, hf, name: file.name, media };
 }
 function blockText(b) { return b.type === 'p' ? b.lines.join(' ') : b.rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join('\n'); }
 
@@ -341,14 +403,25 @@ function findAbbreviations(text) {
 
 /* ---------- merge OJTI + MOI -> model ---------- */
 let rowSeq = 0;
-function newRow(o) { return Object.assign({ id: ++rowSeq, src: 'New', whatEn: '', whatMs: '', howEn: '', howMs: '', whyEn: '', whyMs: '', pic: '' }, o); }
+function newRow(o) { return Object.assign({ id: ++rowSeq, src: 'New', whatEn: '', whatMs: '', howEn: '', howMs: '', whyEn: '', whyMs: '', pic: '', imgs: [] }, o); }
 
 function buildModel(ojti, moi) {
   const warnings = [];
+  const media = {};
+  const reg = (doc, src, img) => {
+    const bytes = doc.media && doc.media[img.key];
+    if (!bytes) return null;
+    const id = M.images.length + 1;
+    const mk = src + '/' + img.key;
+    media[mk] = bytes;
+    M.images.push({ id, src, mk, ext: img.key.split('.').pop().toLowerCase().replace('jpg', 'jpeg').replace('tif', 'tiff'), cx: img.cx || 0, cy: img.cy || 0, crop: img.crop });
+    return id;
+  };
   const M = {
     equip: '', site: 'Melaka', docNo: '', version: 'A', purpose: '', scope: '', esh: '', defs: '', refs: '', tools: '', cal: '', appendix: '', wf: '', equipUsed: '', matUsed: '', moiOnly: !!moi && !ojti,
-    rows: [], moiLines: [], unknownTerms: [], warnings, found: { ojti: !!ojti, moi: !!moi },
+    rows: [], moiLines: [], moiImgs: {}, images: [], unknownTerms: [], warnings, found: { ojti: !!ojti, moi: !!moi },
   };
+  Object.defineProperty(M, 'media', { value: media, enumerable: false });
   const allText = [ojti, moi].filter(Boolean).map((d) => d.blocks.map(blockText).join('\n') + '\n' + d.hf).join('\n');
 
   /* equipment + site */
@@ -379,11 +452,13 @@ function buildModel(ojti, moi) {
       const ci = { what: find(/main step|\bwhat\b|apa/, 0), how: find(/key point|\bhow\b/, 1), why: find(/reason|\bwhy\b/, 2), pic: find(/picture|gambar/, 3) };
       for (const r of tbl.rows.slice(1)) {
         const g = (i) => (r[i] || []);
-        if (![0, 1, 2, 3].some((i) => g(i).length)) continue;
+        const ims = [];
+        r.forEach((cl) => (cl.imgs || []).forEach((im) => { const id = reg(ojti, 'OJTI', im); if (id) ims.push(id); }));
+        if (![0, 1, 2, 3].some((i) => g(i).length) && !ims.length) continue;
         const what = splitLang(g(ci.what)), how = splitLang(g(ci.how)), why = splitLang(g(ci.why));
         M.rows.push(newRow({
           src: 'OJTI', whatEn: what.en.join('\n'), whatMs: what.ms.join('\n'), howEn: how.en.join('\n'), howMs: how.ms.join('\n'),
-          whyEn: why.en.join('\n'), whyMs: why.ms.join('\n'), pic: picNote(g(ci.pic)),
+          whyEn: why.en.join('\n'), whyMs: why.ms.join('\n'), pic: picNote(g(ci.pic)), imgs: ims,
         }));
       }
       const noMs = M.rows.filter((r) => r.howEn && !r.howMs).length;
@@ -524,6 +599,14 @@ function buildModel(ojti, moi) {
     const used = new Set();
     const app = [];
     const wf = [];
+    /* pictures: listed beside the MOI line they follow; with no OJTI they go straight into the 6.2 text as {{image N}} lines */
+    const addImgs = (list) => {
+      const ids = list.map((im) => reg(moi, 'MOI', im)).filter(Boolean);
+      if (!ids.length) return;
+      if (M.moiOnly) ids.forEach((id) => wf.push(`{{image ${id}}}`));
+      const li = Math.max(0, M.moiLines.length - 1);
+      (M.moiImgs[li] = M.moiImgs[li] || []).push(...ids);
+    };
     for (const b of mSec.workflow) {
       if (b.type === 'p') {
         for (const raw of b.lines) {
@@ -533,14 +616,18 @@ function buildModel(ojti, moi) {
           M.moiLines.push(t);
           if (t.length < 70) lastCaption = t;
         }
+        addImgs((b.imgs || []));
       } else if (b.type === 'tbl') {
         const tm = tableMarkup(b.rows);
-        if (tm.length < 2) continue;
+        const tImgs = [];
+        b.rows.forEach((r) => r.forEach((cl) => tImgs.push(...(cl.imgs || []))));
+        if (tm.length < 2) { addImgs(tImgs); continue; }
         let cap = lastCaption.replace(/[.:]+$/, '').trim() || 'Table';
         if (used.has(cap.toLowerCase())) cap += ' (continued)';
         used.add(cap.toLowerCase());
         app.push(`## ${sentenceCase(cap)}\n${tm.join('\n')}`);
         wf.push(...tm);
+        addImgs(tImgs);
       }
     }
     M.appendix = app.join('\n');
@@ -625,6 +712,23 @@ function tbl(cols, rowsXml, o = {}) {
 const tr = (cells, o = {}) => `<w:tr><w:trPr><w:cantSplit/>${o.height ? `<w:trHeight w:val="${o.height}"/>` : ''}${o.header ? '<w:tblHeader/>' : ''}</w:trPr>${cells}</w:tr>`;
 const GREY = 'D1D1D1', LIGHT = 'F2F2F2', BLUE = '0000FF';
 
+
+/* ---------- pictures: copied from the OJTI / MOI as inline drawings ---------- */
+let IMG = { map: {}, list: [], docPr: 5000 };
+let CUR = null; /* the model being written (markup() needs it for {{image N}} lines) */
+function imgRun(S, id, maxW, maxH) {
+  const m = (S.images || []).find((x) => x.id === id);
+  if (!m || !S.media || !S.media[m.mk]) return '';
+  let cx = m.cx || 1500000, cy = m.cy || 1100000;
+  const k = Math.min(1, maxW / cx, maxH / cy);
+  cx = Math.max(1, Math.round(cx * k)); cy = Math.max(1, Math.round(cy * k));
+  let e = IMG.map[m.mk];
+  if (!e) { e = IMG.map[m.mk] = { rid: 'rIdPic' + (IMG.list.length + 1), name: 'media/wi_pic' + (IMG.list.length + 1) + '.' + m.ext, mk: m.mk, ext: m.ext }; IMG.list.push(e); }
+  const c = m.crop ? `<a:srcRect l="${m.crop.l}" t="${m.crop.t}" r="${m.crop.r}" b="${m.crop.b}"/>` : '<a:srcRect/>';
+  const n = ++IMG.docPr;
+  return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${n}" name="Picture ${n}" descr="Picture from ${m.src}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${n}" name="Picture ${n}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${e.rid}"/>${c}<a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+}
+
 function lines(s) { return String(s || '').split('\n').map((x) => x.trim()).filter(Boolean); }
 function cellParas(txt, o = {}) { const ls = lines(txt); return ls.length ? ls.map((l) => cellP(runsHl(l, { sz: 20, ...o }))).join('') : ''; }
 
@@ -667,6 +771,9 @@ function markup(text, ctx) {
       const grp = [l];
       while (i + 1 < ls.length && ls[i + 1].trim().startsWith('|')) grp.push(ls[++i].trim());
       out.push(mdTable(grp));
+    } else if (/^\{\{image \d+\}\}$/.test(l)) {
+      const r = imgRun(CUR, parseInt(l.match(/\d+/)[0], 10), 4500000, 3600000);
+      if (r) out.push(para(r, { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 60, after: 100, ind: 567, first: 0 }));
     } else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, first: 0 })); /* sub-labels stay out of the contents list, like the template */
     else if (/^[-•]\s+/.test(l)) out.push(bulletP(runsHl(l.replace(/^[-•]\s+/, ''))));
     else out.push(bodyP(runsHl(l)));
@@ -689,7 +796,7 @@ const sectPr = (land) => `<w:sectPr><w:headerReference w:type="default" r:id="rI
 const sectBreak = (land) => `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>${sectPr(land)}</w:pPr></w:p>`;
 
 function procTable(S) {
-  const pc = [800, 2600, 5000, 3200, 2632]; /* 14232 wide, same left edge as the template table */
+  const pc = [800, 2500, 4500, 3000, 3432]; /* 14232 wide, same left edge as the template table */
   const hdr = (en, ms, jc = 'center') => cellP(run(en, { b: true, sz: 24 }), { jc, after: 0 }) + (ms ? cellP(run(ms, { b: true, sz: 22, color: BLUE }), { jc, after: 0 }) : '');
   let rowsXml = tr([
     tc(pc[0], hdr('S.No'), { fill: GREY, vAlign: 'center' }),
@@ -703,7 +810,10 @@ function procTable(S) {
     const first = i === 0 || r.whatEn.trim() || r.whatMs.trim();
     const what = (r.whatEn.trim() || r.whatMs.trim())
       ? lines(r.whatEn).map((l) => cellP(runsHl(l, { b: true, sz: 20 }))).join('') + lines(r.whatMs).map((l) => cellP(runsHl(l, { b: true, sz: 20, color: BLUE }))).join('') : '';
-    const pic = cellP(run(r.pic.trim() ? `[Picture: ${r.pic.trim()}]` : '[Insert picture]', { i: true, color: '7F7F7F', sz: 18 }));
+    const picImgs = (r.imgs || []).map((id) => imgRun(S, id, 1950000, 2400000)).filter(Boolean);
+    const pic = picImgs.length
+      ? picImgs.map((x) => cellP(x, { after: 60 })).join('') + (r.pic.trim() ? cellP(run(`[${r.pic.trim()}]`, { i: true, color: '7F7F7F', sz: 18 })) : '')
+      : cellP(run(r.pic.trim() ? `[Picture: ${r.pic.trim()}]` : '[Insert picture]', { i: true, color: '7F7F7F', sz: 18 }));
     rowsXml += tr([
       tc(pc[0], cellP(run(nums[i], { sz: 20 }))),
       tc(pc[1], what, { fill: first && what ? LIGHT : null }),
@@ -727,6 +837,7 @@ function tocXml(toc) {
 }
 
 function buildDocumentXml(S) {
+  CUR = S; IMG = { map: {}, list: [], docPr: 5000 };
   const equip = S.equip.trim() || 'Equipment';
   const title = `Work Instruction for ${equip}`;
   const c = makeCtx();
@@ -784,6 +895,20 @@ async function buildWiBlob(S) {
   zip.file('word/footer2.xml', fillFooter(f1, S, true));
   const st = await zip.file('word/settings.xml').async('string');
   zip.file('word/settings.xml', st.replace(/<w:linkStyles\/>/g, '').replace('</w:compat>', `</w:compat><w:docVars><w:docVar w:name="Title" w:val="${esc(title)}"/></w:docVars>`));
+  if (IMG.list.length) {
+    let rels = await zip.file('word/_rels/document.xml.rels').async('string');
+    let ct = await zip.file('[Content_Types].xml').async('string');
+    const CT = { png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', emf: 'image/x-emf', wmf: 'image/x-wmf', tiff: 'image/tiff' };
+    const exts = new Set();
+    for (const e of IMG.list) {
+      zip.file('word/' + e.name, S.media[e.mk]);
+      rels = rels.replace('</Relationships>', `<Relationship Id="${e.rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.name}"/></Relationships>`);
+      exts.add(e.ext);
+    }
+    for (const x of exts) if (CT[x] && !new RegExp(`<Default Extension="${x}"`, 'i').test(ct)) ct = ct.replace(/(<Types[^>]*>)/, `$1<Default Extension="${x}" ContentType="${CT[x]}"/>`);
+    zip.file('word/_rels/document.xml.rels', rels);
+    zip.file('[Content_Types].xml', ct);
+  }
   const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
   zip.file('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${esc(title)}</dc:title><dc:creator></dc:creator><cp:lastModifiedBy></cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified></cp:coreProperties>`);
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', compression: 'DEFLATE' });
@@ -852,6 +977,23 @@ async function buildWiBlob(S) {
     $('#go').disabled = !(files.ojti || files.moi);
   }
 
+
+  /* ---------- pictures ---------- */
+  const urls = {};
+  const PREVIEW = { png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp' };
+  function imgById(id) { return (S.images || []).find((x) => x.id === id); }
+  function thumb(id, onRemove, label) {
+    const m = imgById(id);
+    if (!m) return null;
+    let body;
+    if (PREVIEW[m.ext] && S.media[m.mk]) {
+      urls[id] = urls[id] || URL.createObjectURL(new Blob([S.media[m.mk]], { type: PREVIEW[m.ext] }));
+      body = h('img', { src: urls[id], alt: `Picture ${id} from the ${m.src}` });
+    } else body = h('span', { class: 'cap', text: `${m.ext.toUpperCase()} picture (no preview)` });
+    return h('div', { class: 'thumb' + (body.tagName === 'IMG' ? '' : ' noprev') }, body, label ? h('span', { class: 'cap', text: label }) : null,
+      onRemove ? h('button', { class: 'btn small danger', type: 'button', onclick: onRemove }, 'Remove') : null);
+  }
+
   /* ---------- review ---------- */
   function field(labelText, key, opts = {}) {
     const id = 'fld-' + key;
@@ -896,7 +1038,8 @@ async function buildWiBlob(S) {
       section('5. Reference', false, field('Reference documents', 'refs', { tag: 'textarea', rows: 6 })),
       ...(S.moiOnly ? [
         section('6.1 Basic operating procedure', false, h('p', { class: 'hint', text: 'No OJTI was uploaded, so 6.1 will show N/A. Upload an OJTI as well if you want the step table.' })),
-        section('6.2 Description of workflow / procedure / method', true, field('Workflow text from the MOI', 'wf', { tag: 'textarea', rows: 14 })),
+        section('6.2 Description of workflow / procedure / method', true, field('Workflow text from the MOI', 'wf', { tag: 'textarea', rows: 14, hint: 'A line such as {{image 3}} places that picture here. Delete the line to leave the picture out, or move it to another place.' }),
+          S.images.length ? h('div', { class: 'tf' }, h('label', { text: `Pictures read from the MOI (${S.images.length}); the number is used in the {{image N}} lines` }), h('div', { class: 'thumbs' }, S.images.map((m) => thumb(m.id, null, `image ${m.id}`)))) : null),
         section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
         section('6.4 Equipment used', false, field('Equipment used (leave empty to drop the heading)', 'equipUsed', { tag: 'textarea', rows: 4 })),
         section('6.5 Material used', false, field('Material used (leave empty to drop the heading)', 'matUsed', { tag: 'textarea', rows: 5 })),
@@ -908,7 +1051,7 @@ async function buildWiBlob(S) {
       section('7. Appendix (tables taken from the MOI)', false, field('Appendix', 'appendix', { tag: 'textarea', rows: 14, hint: 'Each "##" line is a table title (A1, A2…). Delete any table you do not need.' })),
       h('div', { class: 'dl' },
         h('button', { class: 'btn primary', id: 'dlbtn', type: 'button', onclick: download }, 'Download WI (.docx)'),
-        h('p', { class: 'hint', text: 'Pictures are not copied. Each Picture cell has a placeholder to replace in Word. When Word asks to update fields on opening, choose Yes so the contents page gets its page numbers.' }),
+        h('p', { class: 'hint', text: 'Pictures found in the OJTI and MOI are copied across; check each one in Word, and replace any placeholder that is left. Embedded Excel or PowerPoint objects are not copied. When Word asks to update fields on opening, choose Yes so the contents page gets its page numbers.' }),
         h('p', { id: 'dlstatus', class: 'status', role: 'status' })));
   }
 
@@ -933,7 +1076,7 @@ async function buildWiBlob(S) {
     draw();
     const moi = S.moiLines.length ? h('details', { class: 'ref' }, h('summary', {}, `MOI workflow text for reference (${S.moiLines.length} lines)`),
       h('p', { class: 'hint', text: 'Use this to find steps or notes that the OJTI table does not have. "Add as row" puts the line into a new step; then add its Malay text and reason.' }),
-      h('ul', { class: 'moi' }, S.moiLines.map((t) => h('li', {}, h('span', { text: t }), h('button', { class: 'btn small', type: 'button', onclick: () => { S.rows.push(newRow({ src: 'MOI', howEn: t })); draw(); list.lastChild.scrollIntoView({ block: 'center' }); } }, 'Add as row'))))) : null;
+      h('ul', { class: 'moi' }, S.moiLines.map((t, li) => { const ids = S.moiImgs[li] || []; return h('li', {}, h('span', { text: t }), ids.length ? h('div', { class: 'thumbs' }, ids.map((id) => thumb(id, null, 'in the MOI'))) : null, h('button', { class: 'btn small', type: 'button', onclick: () => { S.rows.push(newRow({ src: 'MOI', howEn: t, imgs: ids.slice() })); draw(); list.lastChild.scrollIntoView({ block: 'center' }); } }, ids.length ? 'Add as row with pictures' : 'Add as row')); }))) : null;
     return section('6.1 Basic operating procedure', true,
       h('p', { class: 'hint', text: 'English is the black text, Malay is the blue text. A row with a "Main step" starts a new numbered group; rows without one continue the group above. Several lines in a box become separate paragraphs.' }),
       list, h('div', { class: 'row-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => { S.rows.push(newRow({})); draw(); list.lastChild.scrollIntoView({ block: 'center' }); } }, 'Add row')), moi);
@@ -965,7 +1108,9 @@ async function buildWiBlob(S) {
       h('div', { class: 'grid2' }, tf(r, 'whatEn', 'Main step (What), English'), tf(r, 'whatMs', 'Langkah utama (Apa), Malay', true)),
       h('div', { class: 'grid2' }, tf(r, 'howEn', 'Key points (How), English'), tf(r, 'howMs', 'Perkara utama (Bagaimana), Malay', true)),
       h('div', { class: 'grid2' }, tf(r, 'whyEn', 'Reason (Why), English'), tf(r, 'whyMs', 'Sebab (Mengapa), Malay', true)),
-      h('div', { class: 'tf' }, h('label', { for: pid, text: 'Picture placeholder text' }), pic));
+      h('div', { class: 'tf' }, h('label', { for: pid, text: 'Picture placeholder text' }), pic),
+      r.imgs && r.imgs.length ? h('div', { class: 'tf' }, h('label', { text: `Pictures copied into the Picture cell (${r.imgs.length})` }),
+        h('div', { class: 'thumbs' }, r.imgs.map((id) => thumb(id, () => { r.imgs = r.imgs.filter((x) => x !== id); redraw(); })))) : null);
   }
 
   /* ---------- download ---------- */
