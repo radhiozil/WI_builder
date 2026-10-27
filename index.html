@@ -346,7 +346,7 @@ function newRow(o) { return Object.assign({ id: ++rowSeq, src: 'New', whatEn: ''
 function buildModel(ojti, moi) {
   const warnings = [];
   const M = {
-    equip: '', site: 'Melaka', docNo: '', version: 'A', purpose: '', scope: '', esh: '', defs: '', refs: '', tools: '', cal: '', appendix: '',
+    equip: '', site: 'Melaka', docNo: '', version: 'A', purpose: '', scope: '', esh: '', defs: '', refs: '', tools: '', cal: '', appendix: '', wf: '', equipUsed: '', matUsed: '', moiOnly: !!moi && !ojti,
     rows: [], moiLines: [], unknownTerms: [], warnings, found: { ojti: !!ojti, moi: !!moi },
   };
   const allText = [ojti, moi].filter(Boolean).map((d) => d.blocks.map(blockText).join('\n') + '\n' + d.hf).join('\n');
@@ -523,9 +523,11 @@ function buildModel(ojti, moi) {
     let lastCaption = '';
     const used = new Set();
     const app = [];
+    const wf = [];
     for (const b of mSec.workflow) {
       if (b.type === 'p') {
         for (const raw of b.lines) {
+          { const w0 = raw.trim(); if (w0 && !/^one point lesson/i.test(w0)) wf.push(w0); }
           const t = stripNum(raw).replace(/^step\s*\d+\s*:\s*/i, '').trim();
           if (!t || /^one point lesson/i.test(t)) continue;
           M.moiLines.push(t);
@@ -538,9 +540,17 @@ function buildModel(ojti, moi) {
         if (used.has(cap.toLowerCase())) cap += ' (continued)';
         used.add(cap.toLowerCase());
         app.push(`## ${sentenceCase(cap)}\n${tm.join('\n')}`);
+        wf.push(...tm);
       }
     }
     M.appendix = app.join('\n');
+    if (M.moiOnly) { M.wf = wf.join('\n'); M.appendix = ''; } /* no OJTI: the MOI workflow becomes 6.2 instead of the appendix */
+  }
+  M.equipUsed = plines(mSec.equipment).map((l) => '- ' + l.replace(/[.;]+$/, '')).join('\n');
+  M.matUsed = plines(mSec.material).map((l) => '- ' + l.replace(/[.;]+$/, '')).join('\n');
+  if (M.moiOnly) {
+    warnings.push('No OJTI uploaded: 6.1 is set to N/A. 6.2 uses the MOI "Description of workflow / procedure / method", and 6.4 onward use the MOI equipment and material lists.');
+    if (!M.wf) warnings.push('MOI: could not find the "Description of Workflow / Procedure / Method" section. Type the text into 6.2.');
   }
 
   /* definitions */
@@ -728,11 +738,20 @@ function buildDocumentXml(S) {
   const dRows = lines(S.defs).map((l) => l.split('|').map((x) => x.trim()));
   if (dRows.length) body.push(mdTable(['| Term | Meaning |', ...dRows.map((r) => `| ${r[0] || ''} | ${r.slice(1).join(' / ')} |`)]));
   body.push(c.H1('REFERENCE'), markup(S.refs, c));
-  body.push(sectBreak(false)); /* portrait section ends; 6.1 is landscape */
-  body.push(c.H1('PROCEDURE'), c.H2('Basic operating procedure (for technician/engineer)'));
-  body.push(procTable(S), sectBreak(true)); /* landscape section ends; the rest is portrait */
-  body.push(c.H2('Tools and materials used'), markup(S.tools, c));
-  body.push(c.H2('Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, c));
+  if (!S.moiOnly) body.push(sectBreak(false)); /* portrait section ends; 6.1 is landscape */
+  if (S.moiOnly) {
+    /* MOI only: 6.1 is N/A, 6.2 is the MOI workflow, 6.3 maintenance, 6.4+ equipment and materials; one portrait section */
+    body.push(c.H1('PROCEDURE'), c.H2('Basic operating procedure (for technician/engineer)'), markup('N/A', c));
+    body.push(c.H2('Description of workflow / procedure / method'), markup(S.wf, c));
+    body.push(c.H2('Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, c));
+    if ((S.equipUsed || '').trim()) body.push(c.H2('Equipment used'), markup(S.equipUsed, c));
+    if ((S.matUsed || '').trim()) body.push(c.H2('Material used'), markup(S.matUsed, c));
+  } else {
+    body.push(c.H1('PROCEDURE'), c.H2('Basic operating procedure (for technician/engineer)'));
+    body.push(procTable(S), sectBreak(true)); /* landscape section ends; the rest is portrait */
+    body.push(c.H2('Tools and materials used'), markup(S.tools, c));
+    body.push(c.H2('Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, c));
+  }
   body.push(c.H1('APPENDIX'), markup(S.appendix, c));
 
   /* cover: the template's own paragraphs; the title field gets its text and a line break so CONTENTS stays on its own line */
@@ -860,7 +879,7 @@ async function buildWiBlob(S) {
     const w = S.warnings;
     root.append(
       h('div', { class: 'summary' },
-        h('p', { class: 'lead' }, `${S.rows.filter((r) => r.src === 'OJTI').length} procedure steps read from the OJTI. ${S.moiLines.length} lines of MOI workflow text are listed for reference.`),
+        h('p', { class: 'lead' }, S.moiOnly ? 'MOI only: 6.1 will be N/A and the MOI workflow goes into 6.2.' : `${S.rows.filter((r) => r.src === 'OJTI').length} procedure steps read from the OJTI. ${S.moiLines.length} lines of MOI workflow text are listed for reference.`),
         w.length ? h('div', { class: 'warn' }, h('strong', { text: 'Check these first' }), h('ul', {}, w.map((x) => h('li', { text: x })))) : h('p', { class: 'okline', text: 'No problems found while reading. Review each section below anyway.' })),
       section('Document details', true,
         h('div', { class: 'grid2' },
@@ -875,9 +894,17 @@ async function buildWiBlob(S) {
       section('3. Environmental, safety and health aspects', false, field('Safety, health, waste', 'esh', { tag: 'textarea', rows: 14, hint: 'Built from the MOI safety and waste sections plus the OJTI impact, reaction plan and safety items. Repeated items were removed.' })),
       section('4. Definition', false, field('Terms (one per line: TERM | meaning)', 'defs', { tag: 'textarea', rows: 8 })),
       section('5. Reference', false, field('Reference documents', 'refs', { tag: 'textarea', rows: 6 })),
-      procSection(),
-      section('6.2 Tools and materials used', false, field('Tools and materials', 'tools', { tag: 'textarea', rows: 7 })),
-      section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
+      ...(S.moiOnly ? [
+        section('6.1 Basic operating procedure', false, h('p', { class: 'hint', text: 'No OJTI was uploaded, so 6.1 will show N/A. Upload an OJTI as well if you want the step table.' })),
+        section('6.2 Description of workflow / procedure / method', true, field('Workflow text from the MOI', 'wf', { tag: 'textarea', rows: 14 })),
+        section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
+        section('6.4 Equipment used', false, field('Equipment used (leave empty to drop the heading)', 'equipUsed', { tag: 'textarea', rows: 4 })),
+        section('6.5 Material used', false, field('Material used (leave empty to drop the heading)', 'matUsed', { tag: 'textarea', rows: 5 })),
+      ] : [
+        procSection(),
+        section('6.2 Tools and materials used', false, field('Tools and materials', 'tools', { tag: 'textarea', rows: 7 })),
+        section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
+      ]),
       section('7. Appendix (tables taken from the MOI)', false, field('Appendix', 'appendix', { tag: 'textarea', rows: 14, hint: 'Each "##" line is a table title (A1, A2…). Delete any table you do not need.' })),
       h('div', { class: 'dl' },
         h('button', { class: 'btn primary', id: 'dlbtn', type: 'button', onclick: download }, 'Download WI (.docx)'),
