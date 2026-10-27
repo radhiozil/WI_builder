@@ -676,7 +676,7 @@ function numbering(rows) {
 /* ---------- page setup (taken from the template: Letter, 1" margins) ---------- */
 const PGMAR = '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/><w:cols w:space="720"/><w:docGrid w:linePitch="360"/>';
 const sectPr = (land) => `<w:sectPr><w:headerReference w:type="default" r:id="rId8"/><w:footerReference w:type="default" r:id="${land ? 'rId12' : 'rId9'}"/>${land ? '<w:pgSz w:w="15840" w:h="12240" w:orient="landscape"/>' : '<w:pgSz w:w="12240" w:h="15840"/>'}${PGMAR}</w:sectPr>`;
-const sectBreak = (land) => `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/>${sectPr(land)}</w:pPr></w:p>`;
+const sectBreak = (land) => `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p>${sectPr(land)}`;
 
 function procTable(S) {
   const pc = [800, 2600, 5000, 3200, 2632]; /* 14232 wide, same left edge as the template table */
@@ -739,7 +739,7 @@ function buildDocumentXml(S) {
   const R1 = '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:bCs/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr>';
   const R2 = '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:bCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>';
   const p1 = `<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="7797"/></w:tabs><w:spacing w:before="240"/><w:jc w:val="center"/>${R2.replace('<w:rPr>', '<w:rPr>')}</w:pPr><w:r>${R1}<w:fldChar w:fldCharType="begin"/></w:r><w:r>${R1}<w:instrText xml:space="preserve"> DOCVARIABLE  Title  \\* MERGEFORMAT </w:instrText></w:r><w:r>${R1}<w:fldChar w:fldCharType="separate"/></w:r><w:r>${R1}<w:t xml:space="preserve">${esc(title)}</w:t></w:r><w:r>${R1}<w:fldChar w:fldCharType="end"/></w:r><w:r>${R2}<w:br/></w:r><w:r>${R2}<w:br/></w:r><w:r>${R2}<w:t>CONTENTS</w:t></w:r></w:p>`;
-  return TPL.docHead + TPL.p0 + p1 + TPL.p2 + tocXml(c.toc) + TPL.p11 + TPL.p12 + body.join('') + sectPr(false) + '</w:body></w:document>';
+  return TPL.docHead + TPL.p0 + p1 + TPL.p2 + tocXml(c.toc) + TPL.p11 + body.join('') + sectPr(false) + '</w:body></w:document>';
 }
 
 /* footer: template footer with the title, document number and version filled in; the landscape copy is widened to match */
