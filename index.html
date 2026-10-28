@@ -690,7 +690,7 @@ function para(inner, p = {}) {
   let pp = '';
   if (p.style) pp += `<w:pStyle w:val="${p.style}"/>`;
   if (p.keepNext) pp += '<w:keepNext/>';
-  if (p.numId) pp += `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${p.numId}"/></w:numPr>`;
+  if (p.numId) pp += `<w:numPr><w:ilvl w:val="${p.ilvl || 0}"/><w:numId w:val="${p.numId}"/></w:numPr>`;
   if (p.tabs) pp += `<w:tabs>${p.tabs}</w:tabs>`;
   /* the template's defaults are 1.5 line spacing with 6pt before and after, so every paragraph written here sets its own spacing */
   pp += `<w:spacing w:before="${p.before != null ? p.before : 0}" w:after="${p.after != null ? p.after : 0}" w:line="240" w:lineRule="auto"/>`;
@@ -700,6 +700,7 @@ function para(inner, p = {}) {
 }
 const bodyP = (inner) => para(inner, { tabs: '<w:tab w:val="num" w:pos="567"/>', after: 100, ind: 567, first: 0 });
 const bulletP = (inner) => para(inner, { style: 'ListParagraph', numId: 90, after: 60, ind: 927, hang: 360 });
+const numP = (inner, numId) => para(inner, { style: 'ListParagraph', numId, after: 60, ind: 927, hang: 360 });
 const cellP = (inner, o = {}) => para(inner, { after: o.after != null ? o.after : 60, ind: 0, first: 0, jc: o.jc });
 
 function tc(w, inner, o = {}) {
@@ -715,6 +716,7 @@ const GREY = 'D1D1D1', LIGHT = 'F2F2F2', BLUE = '0000FF';
 
 /* ---------- pictures: copied from the OJTI / MOI as inline drawings ---------- */
 let IMG = { map: {}, list: [], docPr: 5000 };
+let NUMLISTS = []; /* one numbering instance per list, so every sub-topic starts again at 1 */
 let CUR = null; /* the model being written (markup() needs it for {{image N}} lines) */
 function imgRun(S, id, maxW, maxH) {
   const m = (S.images || []).find((x) => x.id === id);
@@ -761,12 +763,14 @@ function makeCtx() {
   return c;
 }
 
-function markup(text, ctx) {
+function markup(text, ctx, opts = {}) {
   const out = [];
   const ls = String(text || '').split('\n');
+  let cur = 0, subOpen = false;
   for (let i = 0; i < ls.length; i++) {
     const l = ls[i].trim();
     if (!l) continue;
+    if (!/^[-•]\s+/.test(l)) cur = 0;
     if (l.startsWith('|')) {
       const grp = [l];
       while (i + 1 < ls.length && ls[i + 1].trim().startsWith('|')) grp.push(ls[++i].trim());
@@ -774,9 +778,11 @@ function markup(text, ctx) {
     } else if (/^\{\{image \d+\}\}$/.test(l)) {
       const r = imgRun(CUR, parseInt(l.match(/\d+/)[0], 10), 4500000, 3600000);
       if (r) out.push(para(r, { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 60, after: 100, ind: 567, first: 0 }));
-    } else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, first: 0 })); /* sub-labels stay out of the contents list, like the template */
-    else if (/^[-•]\s+/.test(l)) out.push(bulletP(runsHl(l.replace(/^[-•]\s+/, ''))));
-    else out.push(bodyP(runsHl(l)));
+    } else if (opts.sub && l.startsWith('## ')) { subOpen = true; out.push(para(run(l.slice(3).trim(), { b: true, sz: 24 }), { numId: 19, ilvl: 1, tabs: '<w:tab w:val="clear" w:pos="1337"/>', before: 120, after: 60, ind: 1300, hang: 733, keepNext: true })); } /* numbered 3.1, 3.2 ... like a level-2 heading, but not a Heading style, so the contents list stays short */
+    else if (opts.sub && subOpen && /^[-•]\s+/.test(l)) out.push(para(runsHl(l.replace(/^[-•]\s+/, '')), { numId: 19, ilvl: 2, after: 60, ind: 1300, hang: 733 })); /* 3.1.1, 3.1.2 ... continue the heading numbers */
+    else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, first: 0 })); /* sub-labels stay out of the contents list, like the template */
+    else if (/^[-•]\s+/.test(l)) { if (!cur) { cur = 100 + NUMLISTS.length; NUMLISTS.push(cur); } out.push(numP(runsHl(l.replace(/^[-•]\s+/, '')), cur)); }
+    else out.push(opts.sub && subOpen ? para(runsHl(l), { after: 100, ind: 1300, first: 0 }) : bodyP(runsHl(l)));
   }
   return out.join('');
 }
@@ -837,14 +843,14 @@ function tocXml(toc) {
 }
 
 function buildDocumentXml(S) {
-  CUR = S; IMG = { map: {}, list: [], docPr: 5000 };
+  CUR = S; IMG = { map: {}, list: [], docPr: 5000 }; NUMLISTS = [];
   const equip = S.equip.trim() || 'Equipment';
   const title = `Work Instruction for ${equip}`;
   const c = makeCtx();
   const body = [];
   body.push(c.H1('PURPOSE'), markup(S.purpose, c));
   body.push(c.H1('SCOPE'), markup(S.scope, c));
-  body.push(c.H1('ENVIRONMENTAL, SAFETY AND HEALTH ASPECTS'), markup(S.esh, c));
+  body.push(c.H1('ENVIRONMENTAL, SAFETY AND HEALTH ASPECTS'), markup(S.esh, c, { sub: true }));
   body.push(c.H1('DEFINITION'));
   const dRows = lines(S.defs).map((l) => l.split('|').map((x) => x.trim()));
   if (dRows.length) body.push(mdTable(['| Term | Meaning |', ...dRows.map((r) => `| ${r[0] || ''} | ${r.slice(1).join(' / ')} |`)]));
@@ -890,6 +896,21 @@ async function buildWiBlob(S) {
   const zip = await JSZip.loadAsync(TPL.b64, { base64: true });
   const title = `Work Instruction for ${S.equip.trim() || 'Equipment'}`;
   zip.file('word/document.xml', buildDocumentXml(S));
+  {
+    /* level 3 of the heading list (3.1.1) is used for plain text items: Arial 10 pt, not bold */
+    let n0 = await zip.file('word/numbering.xml').async('string');
+    n0 = n0.replace(/(<w:abstractNum w:abstractNumId="0"[^>]*>[\s\S]*?<w:lvl w:ilvl="2">[\s\S]*?<w:rPr>)[\s\S]*?(<\/w:rPr><\/w:lvl>)/, '$1<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial" w:hint="default"/><w:b w:val="0"/><w:i w:val="0"/><w:sz w:val="20"/><w:szCs w:val="20"/>$2');
+    zip.file('word/numbering.xml', n0);
+  }
+  if (NUMLISTS.length) {
+    let nb = await zip.file('word/numbering.xml').async('string');
+    const abs = '<w:abstractNum w:abstractNumId="91"><w:multiLevelType w:val="hybridMultilevel"/><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="927" w:hanging="360"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial" w:hint="default"/><w:b w:val="0"/><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:lvl></w:abstractNum>';
+    const nums = NUMLISTS.map((id) => `<w:num w:numId="${id}"><w:abstractNumId w:val="91"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride></w:num>`).join('');
+    const li = nb.lastIndexOf('</w:num>') + 8;
+    nb = nb.slice(0, li) + nums + nb.slice(li);
+    nb = nb.replace(/<w:num /, abs + '<w:num ');
+    zip.file('word/numbering.xml', nb);
+  }
   const f1 = await zip.file('word/footer1.xml').async('string');
   zip.file('word/footer1.xml', fillFooter(f1, S, false));
   zip.file('word/footer2.xml', fillFooter(f1, S, true));
