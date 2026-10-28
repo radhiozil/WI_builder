@@ -4,10 +4,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: one narrow working column. Step 1 upload, step 2 review (accordion sections), step 3 download.
-   Tokens: lab-bench grey-green neutrals, one teal accent; blue is reserved for Malay text to match the Word output. */
+   Tokens: company brand palette (ocean-500 #0A8276 brand colour, ocean-700/600/400/300/200/100 shades, text black #1D1D1D, white); blue is reserved for Malay text to match the Word output. */
 :root {
-  --bg: #f3f5f4; --surface: #ffffff; --surface-2: #eaeeec; --fg: #1b2422; --muted: #566561; --line: #cdd5d2;
-  --accent: #0f6b66; --accent-fg: #ffffff; --accent-soft: #dcefec;
+  --bg: #f4f7f7; --surface: #ffffff; --surface-2: #e9f2f1; --fg: #1d1d1d; --muted: #4f5d5b; --line: #c9d6d4;
+  --accent: #0a8276; --accent-fg: #ffffff; --accent-soft: #dff4f3; --brand-dark: #06534b; --brand-mid: #08665c;
   --warn-bg: #fff4d6; --warn-fg: #5c4300; --warn-line: #e3c36a;
   --ms: #1a35d6; --danger: #a12d2d;
   --font: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
@@ -15,17 +15,17 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #121817; --surface: #1a2221; --surface-2: #232d2b; --fg: #e5ecea; --muted: #9aaaa6; --line: #35423f;
-  --accent: #4cc2b8; --accent-fg: #07201e; --accent-soft: #1d3a37;
+  --accent: #6cb4ad; --accent-fg: #06201d; --accent-soft: #06534b; --brand-dark: #b8deda; --brand-mid: #6cb4ad;
   --warn-bg: #3a3017; --warn-fg: #f2dba0; --warn-line: #7a6525; --ms: #8ea2ff; --danger: #f08a8a; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #121817; --surface: #1a2221; --surface-2: #232d2b; --fg: #e5ecea; --muted: #9aaaa6; --line: #35423f;
-  --accent: #4cc2b8; --accent-fg: #07201e; --accent-soft: #1d3a37;
+  --accent: #6cb4ad; --accent-fg: #06201d; --accent-soft: #06534b; --brand-dark: #b8deda; --brand-mid: #6cb4ad;
   --warn-bg: #3a3017; --warn-fg: #f2dba0; --warn-line: #7a6525; --ms: #8ea2ff; --danger: #f08a8a; color-scheme: dark; }
 
 * { box-sizing: border-box; }
 body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.5; }
 .wrap { max-width: 980px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 24px; }
-h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+h1 { color: var(--brand-dark); font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
 p { margin: 0; }
 .intro { color: var(--muted); max-width: 62ch; }
@@ -47,6 +47,7 @@ p { margin: 0; }
 .btn:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; padding: 11px 20px; }
+.btn.primary:hover:not(:disabled) { background: var(--brand-mid); border-color: var(--brand-mid); }
 .btn.small { padding: 4px 10px; font-size: 13px; }
 .btn.danger { color: var(--danger); }
 .status { color: var(--muted); font-size: 14px; }
