@@ -2,6 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22512%22%20height=%22512%22%20viewBox=%220%200%20128%20128%22%3E%3Crect%20width=%22128%22%20height=%22128%22%20rx=%2228%22%20fill=%22%2306534B%22/%3E%3Cg%3E%3Cpath%20d=%22M10%2022%20H34%20L42%2030%20V58%20H10%20Z%22%20fill=%22%23DFF4F3%22/%3E%3Cpath%20d=%22M34%2022%20V30%20H42%20Z%22%20fill=%22%236CB4AD%22/%3E%3Ctext%20x=%2226%22%20y=%2249%22%20font-family=%22Arial,Helvetica,sans-serif%22%20font-weight=%22700%22%20font-size=%2210.5%22%20text-anchor=%22middle%22%20fill=%22%2306534B%22%3EOJTI%3C/text%3E%3Cpath%20d=%22M10%2070%20H34%20L42%2078%20V106%20H10%20Z%22%20fill=%22%23B8DEDA%22/%3E%3Cpath%20d=%22M34%2070%20V78%20H42%20Z%22%20fill=%22%236CB4AD%22/%3E%3Ctext%20x=%2226%22%20y=%2297%22%20font-family=%22Arial,Helvetica,sans-serif%22%20font-weight=%22700%22%20font-size=%2211%22%20text-anchor=%22middle%22%20fill=%22%2306534B%22%3EMOI%3C/text%3E%3C/g%3E%3Cpath%20d=%22M45%2044%20C54%2044%2052%2064%2060%2064%20M45%2084%20C54%2084%2052%2064%2060%2064%22%20stroke=%22%236CB4AD%22%20stroke-width=%223.2%22%20fill=%22none%22%20stroke-linecap=%22round%22/%3E%3Cpath%20d=%22M56%2056%20L68%2064%20L56%2072%20Z%22%20fill=%22%23fff%22/%3E%3Cpath%20d=%22M76%2014%20H104%20L120%2030%20V114%20H76%20Z%22%20fill=%22%23fff%22/%3E%3Cpath%20d=%22M104%2014%20V30%20H120%20Z%22%20fill=%22%23B8DEDA%22/%3E%3Ctext%20x=%2298%22%20y=%2282%22%20font-family=%22Arial,Helvetica,sans-serif%22%20font-weight=%22700%22%20font-size=%2225%22%20text-anchor=%22middle%22%20fill=%22%230A8276%22%3EWI%3C/text%3E%3Crect%20x=%2284%22%20y=%2298%22%20width=%2228%22%20height=%224%22%20rx=%222%22%20fill=%22%236CB4AD%22/%3E%3Crect%20x=%2284%22%20y=%2240%22%20width=%2222%22%20height=%224%22%20rx=%222%22%20fill=%22%23B8DEDA%22/%3E%3C/svg%3E">
 <style>
 /* Layout: one narrow working column. Step 1 upload, step 2 review (accordion sections), step 3 download.
    Tokens: company brand palette (ocean-500 #0A8276 brand colour, ocean-700/600/400/300/200/100 shades, text black #1D1D1D, white); blue is reserved for Malay text to match the Word output. */
@@ -210,18 +211,29 @@ function tblRows(t, rels) {
   }));
 }
 
+function sectLand(sp) {
+  const pg = kids(sp, 'pgSz')[0]; if (!pg) return null;
+  const g = (a) => parseInt(pg.getAttributeNS(WNS, a) || pg.getAttribute('w:' + a) || '0', 10);
+  return pg.getAttributeNS(WNS, 'orient') === 'landscape' || pg.getAttribute('w:orient') === 'landscape' || g('w') > g('h');
+}
 function readBlocks(xmlDoc, rels) {
   const body = xmlDoc.getElementsByTagNameNS(WNS, 'body')[0];
   const blocks = [];
+  let pending = []; /* tables waiting for the section break that tells their page orientation */
   (function walk(n) {
     for (const c of n.children) {
       const ln = c.localName;
-      if (ln === 'p') blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean), imgs: paraImages(c, rels) });
-      else if (ln === 'tbl') blocks.push({ type: 'tbl', rows: tblRows(c, rels) });
+      if (ln === 'p') {
+        blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean), imgs: paraImages(c, rels) });
+        const ppr = kids(c, 'pPr')[0]; const sp = ppr && kids(ppr, 'sectPr')[0];
+        if (sp) { const l = sectLand(sp); pending.forEach((b) => { b.land = !!l; }); pending = []; }
+      } else if (ln === 'tbl') { const b = { type: 'tbl', rows: tblRows(c, rels) }; blocks.push(b); pending.push(b); }
       else if (ln === 'sdt') { const sc = kids(c, 'sdtContent')[0]; if (sc) walk(sc); }
       else if (ln === 'customXml' || ln === 'smartTag' || ln === 'ins') walk(c);
     }
   })(body);
+  const fin = kids(body, 'sectPr')[0]; const fl = fin ? sectLand(fin) : false;
+  pending.forEach((b) => { b.land = !!fl; });
   return blocks;
 }
 
@@ -322,6 +334,27 @@ function sim(a, b) {
 const DOCNO = /Z8[A-Z]\d{8}/g;
 function sentenceCase(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 function cell(c) { return c.join(' ').replace(/\|/g, '/'); }
+/* checklist / maintenance record tables (STPM etc., with LW / CW tick columns) belong in the Appendix */
+function isChecklist(rows) {
+  const t = rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join(' ');
+  if (/proprietary data|company confidential|function \/ role|if printed/i.test(t)) return false;
+  return /preventive maintenance|maintenance record|short term|\bSTPM\b|check ?list|record no|inventory no|\b(LW|CW)\b/i.test(t);
+}
+function checklistMarkup(rows) {
+  let rr = rows.slice(); while (rr.length && !rr[0].some((c) => c && c.length)) rr.shift(); /* keep blank rows: they are the tick rows */
+  const txt = (c) => (c ? cell(c).replace(/\s+/g, ' ').trim() : '');
+  const w = Math.max(0, ...rr.map((r) => r.length));
+  /* leading rows with fewer cells than the data rows are title / record-number rows: they become the caption */
+  let i = 0; const head = [];
+  while (i < rr.length - 1 && rr[i].filter((c) => c && c.length).length < Math.min(3, w)) { head.push(rr[i].map(txt).filter(Boolean).join(' ')); i++; }
+  const body = rr.slice(i);
+  const keep = [];
+  for (let c = 0; c < w; c++) if (body.some((r) => r[c] && r[c].length)) keep.push(c);
+  const lines = body.map((r) => '| ' + keep.map((c) => txt(r[c])).join(' | ') + ' |');
+  const cap = (head[0] || 'Checklist').replace(/\s*(record no|inventory no).*$/i, '').trim() || 'Checklist';
+  const extra = head.slice(1).concat(head[0] && /(record no|inventory no)/i.test(head[0]) ? [head[0].slice(head[0].search(/(record no|inventory no)/i))] : []);
+  return { caption: cap, lines, extra };
+}
 function tableMarkup(rows) {
   if (/proprietary data|company confidential|function \/ role|if printed|template word|for internal use only/i.test(rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join(' '))) return [];
   const w = Math.max(0, ...rows.map((r) => r.length));
@@ -538,12 +571,14 @@ function buildModel(ojti, moi) {
   }).join('\n');
   if (!hasChem && esh.length) eshText += '\n## Chemical\nNot applicable.';
   /* waste */
+  const ck = []; /* checklist tables found outside the workflow */
   const wasteBlocks = mSec.waste || (ojti ? oSec.waste : null);
   if (wasteBlocks) {
     const w = ['## Waste disposal'];
     let sawTable = false;
     for (const b of wasteBlocks) {
       if (b.type === 'p') b.lines.map(stripNum).filter((l) => l && !/^(solid|liquid) waste$/i.test(l.replace(/[:.]$/, ''))).forEach((l) => w.push(l));
+      else if (b.type === 'tbl' && isChecklist(b.rows)) ck.push(b);
       else if (b.type === 'tbl' && !(sawTable && !mSec.waste)) { const tm = tableMarkup(b.rows); if (tm.length) { w.push(...tm); sawTable = true; } }
     }
     if (w.length > 1) eshText += (eshText ? '\n' : '') + w.join('\n');
@@ -633,6 +668,16 @@ function buildModel(ojti, moi) {
     }
     M.appendix = app.join('\n');
     if (M.moiOnly) { M.wf = wf.join('\n'); M.appendix = ''; } /* no OJTI: the MOI workflow becomes 6.2 instead of the appendix */
+  }
+  /* checklist tables (STPM etc.) go to the Appendix in every mode */
+  for (const b of (mSec.maintenance || [])) if (b.type === 'tbl' && isChecklist(b.rows)) ck.push(b);
+  if (ck.length) {
+    const used2 = new Set();
+    const blocks = ck.map((blk) => {
+      const m = checklistMarkup(blk.rows); let cap = m.caption; if (used2.has(cap.toLowerCase())) cap += ' (continued)'; used2.add(cap.toLowerCase());
+      return `## ${cap}\n{{page ${blk.land ? 'landscape' : 'portrait'}}}\n` + m.extra.map((e) => e + '\n').join('') + m.lines.join('\n');
+    });
+    M.appendix = (M.appendix ? M.appendix + '\n' : '') + blocks.join('\n');
   }
   M.equipUsed = plines(mSec.equipment).map((l) => '- ' + l.replace(/[.;]+$/, '')).join('\n');
   M.matUsed = plines(mSec.material).map((l) => '- ' + l.replace(/[.;]+$/, '')).join('\n');
@@ -736,16 +781,23 @@ function lines(s) { return String(s || '').split('\n').map((x) => x.trim()).filt
 function cellParas(txt, o = {}) { const ls = lines(txt); return ls.length ? ls.map((l) => cellP(runsHl(l, { sz: 20, ...o }))).join('') : ''; }
 
 /* generic text table: sits under the heading text, 8793 twips wide */
+let TABW = 8793; /* table width: wider on a landscape page */
 function mdTable(rowsTxt) {
-  const TW = 8793;
-  const rows = rowsTxt.map((l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())).filter((r) => !r.every((c) => /^:?-{2,}:?$/.test(c) || c === ''));
+  const TW = TABW;
+  const rows = rowsTxt.map((l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())).filter((r) => !(r.every((c) => /^:?-{2,}:?$/.test(c) || c === '') && r.some((c) => c)));
   const n = Math.max(...rows.map((r) => r.length));
   const weights = [];
   for (let c = 0; c < n; c++) weights.push(Math.min(60, Math.max(8, Math.max(...rows.map((r) => (r[c] || '').length)))));
   const tot = weights.reduce((a, b) => a + b, 0);
-  const cols = weights.map((w) => Math.max(900, Math.round((w / tot) * TW)));
+  const minW = Math.min(900, Math.floor(TW / n) - 20), fsz = n > 8 ? 16 : 20;
+  const cols = weights.map((w) => Math.max(minW, Math.round((w / tot) * TW)));
+  for (let k = 0; k < 6; k++) { /* rescale the wide columns until the total fits and none is below the minimum */
+    const sum = cols.reduce((a, b) => a + b, 0); const free = cols.filter((w) => w > minW).reduce((a, b) => a + b, 0);
+    if (sum === TW || !free) break;
+    const f = (free + TW - sum) / free; cols.forEach((w, i) => { if (w > minW) cols[i] = Math.max(minW, Math.round(w * f)); });
+  }
   cols[cols.length - 1] += TW - cols.reduce((a, b) => a + b, 0);
-  const xml = rows.map((r, ri) => tr(cols.map((w, ci) => tc(w, cellP(runsHl(r[ci] || '', { sz: 20, b: ri === 0 })), { fill: ri === 0 ? GREY : null })).join(''), { header: ri === 0 })).join('');
+  const xml = rows.map((r, ri) => tr(cols.map((w, ci) => tc(w, cellP(runsHl(r[ci] || '', { sz: fsz, b: ri === 0 })), { fill: ri === 0 ? GREY : null })).join(''), { header: ri === 0 })).join('');
   return tbl(cols, xml, { ind: 567 }) + cellP('', { after: 60 });
 }
 
@@ -870,13 +922,27 @@ function buildDocumentXml(S) {
     body.push(c.H2('Tools and materials used'), markup(S.tools, c));
     body.push(c.H2('Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, c));
   }
-  body.push(c.H1('APPENDIX'), markup(S.appendix, c));
+  body.push(c.H1('APPENDIX'));
+  /* checklist tables (marked {{page landscape|portrait}}) each get their own page, in the orientation they had in the MOI */
+  const aBlocks = (S.appendix || '').split(/\n(?=## )/).filter((x) => x.trim());
+  const isPg = (x) => /^\{\{page (landscape|portrait)\}\}$/m.test(x);
+  const normal = aBlocks.filter((x) => !isPg(x)), pages = aBlocks.filter(isPg);
+  if (normal.length) body.push(markup(normal.join('\n'), c));
+  let finalLand = false;
+  pages.forEach((x, i) => {
+    const land = /\{\{page landscape\}\}/.test(x);
+    const txt = x.replace(/^\{\{page (landscape|portrait)\}\}\n?/m, '');
+    /* the previous section ends in the orientation of its own content */
+    if (i === 0) body.push(sectBreak(false)); else body.push(sectBreak(/\{\{page landscape\}\}/.test(pages[i - 1])));
+    TABW = land ? 12300 : 8793; body.push(markup(txt, c)); TABW = 8793;
+    finalLand = land;
+  });
 
   /* cover: the template's own paragraphs; the title field gets its text and a line break so CONTENTS stays on its own line */
   const R1 = '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:bCs/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr>';
   const R2 = '<w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:b/><w:bCs/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>';
   const p1 = `<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="7797"/></w:tabs><w:spacing w:before="240"/><w:jc w:val="center"/>${R2.replace('<w:rPr>', '<w:rPr>')}</w:pPr><w:r>${R1}<w:fldChar w:fldCharType="begin"/></w:r><w:r>${R1}<w:instrText xml:space="preserve"> DOCVARIABLE  Title  \\* MERGEFORMAT </w:instrText></w:r><w:r>${R1}<w:fldChar w:fldCharType="separate"/></w:r><w:r>${R1}<w:t xml:space="preserve">${esc(title)}</w:t></w:r><w:r>${R1}<w:fldChar w:fldCharType="end"/></w:r><w:r>${R2}<w:br/></w:r><w:r>${R2}<w:br/></w:r><w:r>${R2}<w:t>CONTENTS</w:t></w:r></w:p>`;
-  return TPL.docHead + TPL.p0 + p1 + TPL.p2 + tocXml(c.toc) + TPL.p11 + TPL.p12 + body.join('') + sectPr(false) + '</w:body></w:document>';
+  return TPL.docHead + TPL.p0 + p1 + TPL.p2 + tocXml(c.toc) + TPL.p11 + TPL.p12 + body.join('') + sectPr(finalLand) + '</w:body></w:document>';
 }
 
 /* footer: template footer with the title, document number and version filled in; the landscape copy is widened to match */
@@ -1070,7 +1136,7 @@ async function buildWiBlob(S) {
         section('6.2 Tools and materials used', false, field('Tools and materials', 'tools', { tag: 'textarea', rows: 7 })),
         section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
       ]),
-      section('7. Appendix (tables taken from the MOI)', false, field('Appendix', 'appendix', { tag: 'textarea', rows: 14, hint: 'Each "##" line is a table title (A1, A2…). Delete any table you do not need.' })),
+      section('7. Appendix (tables taken from the MOI)', false, field('Appendix', 'appendix', { tag: 'textarea', rows: 14, hint: 'Each "##" line is a table title (A1, A2…). Delete any table you do not need. A table marked {{page landscape}} or {{page portrait}} (checklists such as STPM) is put on its own page in that orientation.' })),
       h('div', { class: 'dl' },
         h('button', { class: 'btn primary', id: 'dlbtn', type: 'button', onclick: download }, 'Download WI (.docx)'),
         h('p', { class: 'hint', text: 'Pictures found in the OJTI and MOI are copied across; check each one in Word, and replace any placeholder that is left. Embedded Excel or PowerPoint objects are not copied. When Word asks to update fields on opening, choose Yes so the contents page gets its page numbers.' }),
