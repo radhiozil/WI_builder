@@ -197,6 +197,27 @@ function paraImages(p, rels) {
   return out;
 }
 
+/* cell background as one hex colour (pattern shading like pct60 is blended with its fill) and the first text colour */
+function cellShade(tc) {
+  const pr = kids(tc, 'tcPr')[0]; const sh = pr && kids(pr, 'shd')[0];
+  const at = (e, a) => e.getAttributeNS(WNS, a) || e.getAttribute('w:' + a) || '';
+  let fill = null;
+  if (sh) {
+    const val = at(sh, 'val'), col = at(sh, 'color'), f = at(sh, 'fill');
+    const rgb = (h, d) => /^[0-9A-Fa-f]{6}$/.test(h) ? [0, 2, 4].map((i) => parseInt(h.substr(i, 2), 16)) : d;
+    const bg = rgb(f, [255, 255, 255]), fg = rgb(col, [0, 0, 0]);
+    const m = /^pct(\d+)$/.exec(val);
+    let out = null;
+    if (m) { const k = parseInt(m[1], 10) / 100; out = bg.map((v, i) => Math.round(fg[i] * k + v * (1 - k))); }
+    else if (val === 'solid') out = fg;
+    else if (/^[0-9A-Fa-f]{6}$/.test(f)) out = bg;
+    if (out && !(out[0] > 250 && out[1] > 250 && out[2] > 250)) fill = out.map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+  }
+  let color = null;
+  const rc = Array.from(tc.getElementsByTagNameNS(WNS, 'color'))[0];
+  if (rc) { const v = at(rc, 'val'); if (/^[0-9A-Fa-f]{6}$/.test(v) && v.toUpperCase() !== '000000') color = v.toUpperCase(); }
+  return { fill, color };
+}
 function tblRows(t, rels) {
   return kids(t, 'tr').map((tr) => kids(tr, 'tc').map((tc) => {
     const lines = [];
@@ -207,6 +228,7 @@ function tblRows(t, rels) {
     }
     const res = lines.filter(Boolean);
     res.imgs = imgs;
+    Object.assign(res, { shade: cellShade(tc) });
     return res;
   }));
 }
@@ -355,13 +377,14 @@ function checklistMarkup(rows) {
   const extra = head.slice(1).concat(head[0] && /(record no|inventory no)/i.test(head[0]) ? [head[0].slice(head[0].search(/(record no|inventory no)/i))] : []);
   return { caption: cap, lines, extra };
 }
-function tableMarkup(rows) {
+function tableMarkup(rows, colours) {
   if (/proprietary data|company confidential|function \/ role|if printed|template word|for internal use only/i.test(rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join(' '))) return [];
   const w = Math.max(0, ...rows.map((r) => r.length));
   const keep = [];
   for (let c = 0; c < w; c++) if (rows.some((r) => r[c] && r[c].length)) keep.push(c);
   if (!keep.length) return [];
-  return rows.filter((r) => r.some((c) => c && c.length)).map((r) => '| ' + keep.map((c) => (r[c] ? cell(r[c]) : '')).join(' | ') + ' |');
+  return rows.filter((r) => r.some((c) => c && c.length)).map((r) => '| ' + keep.map((c) => (r[c] ? mark(r[c]) : '')).join(' | ') + ' |');
+  function mark(c) { const t = cell(c), sh = c.shade; return colours && sh && t ? `{{cell ${sh.fill || '-'} ${sh.color || '-'}}}${t}` : t; }
 }
 function walkSections(blocks, detect) {
   const out = { _pre: [] };
@@ -579,7 +602,7 @@ function buildModel(ojti, moi) {
     for (const b of wasteBlocks) {
       if (b.type === 'p') b.lines.map(stripNum).filter((l) => l && !/^(solid|liquid) waste$/i.test(l.replace(/[:.]$/, ''))).forEach((l) => w.push(l));
       else if (b.type === 'tbl' && isChecklist(b.rows)) ck.push(b);
-      else if (b.type === 'tbl' && !(sawTable && !mSec.waste)) { const tm = tableMarkup(b.rows); if (tm.length) { w.push(...tm); sawTable = true; } }
+      else if (b.type === 'tbl' && !(sawTable && !mSec.waste)) { const tm = tableMarkup(b.rows, true); if (tm.length) { w.push(...tm); sawTable = true; } }
     }
     if (w.length > 1) eshText += (eshText ? '\n' : '') + w.join('\n');
   }
@@ -797,7 +820,12 @@ function mdTable(rowsTxt) {
     const f = (free + TW - sum) / free; cols.forEach((w, i) => { if (w > minW) cols[i] = Math.max(minW, Math.round(w * f)); });
   }
   cols[cols.length - 1] += TW - cols.reduce((a, b) => a + b, 0);
-  const xml = rows.map((r, ri) => tr(cols.map((w, ci) => tc(w, cellP(runsHl(r[ci] || '', { sz: fsz, b: ri === 0 })), { fill: ri === 0 ? GREY : null })).join(''), { header: ri === 0 })).join('');
+  const xml = rows.map((r, ri) => tr(cols.map((w, ci) => {
+    let t = r[ci] || '', fill = ri === 0 ? GREY : null, color = null;
+    const m = /^\{\{cell (\S+) (\S+)\}\}/.exec(t); /* colours copied from the MOI cell */
+    if (m) { t = t.slice(m[0].length); fill = m[1] !== '-' ? m[1] : null; if (m[2] !== '-') color = m[2]; }
+    return tc(w, cellP(runsHl(t, { sz: fsz, b: ri === 0, color })), { fill });
+  }).join(''), { header: ri === 0 })).join('');
   return tbl(cols, xml, { ind: 567 }) + cellP('', { after: 60 });
 }
 
