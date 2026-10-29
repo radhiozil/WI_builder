@@ -386,6 +386,52 @@ function tableMarkup(rows, colours) {
   return rows.filter((r) => r.some((c) => c && c.length)).map((r) => '| ' + keep.map((c) => (r[c] ? mark(r[c]) : '')).join(' | ') + ' |');
   function mark(c) { const t = cell(c), sh = c.shade; return colours && sh && t ? `{{cell ${sh.fill || '-'} ${sh.color || '-'}}}${t}` : t; }
 }
+/* A maintenance record (STPM etc.) closes many MOIs: banner, inventory / signature lines, test conditions, the tick table and a remarks box.
+   Take that whole tail out of the sections so it can go on its own Appendix page, laid out as in the MOI. */
+function extractRecord(blocks) {
+  /* the first checklist table after which only short lines and tables follow (earlier hits are header tables) */
+  const tailOk = (ti) => { for (let i = ti + 1; i < blocks.length; i++) { const b = blocks[i]; if (b.type === 'p' && b.lines.some((l) => l.length > 150 || moiKey(headNorm(l)))) return false; } return true; };
+  const ti = blocks.findIndex((b, i) => b.type === 'tbl' && isChecklist(b.rows) && tailOk(i));
+  if (ti < 0) return null;
+  let st = ti, banner = -1;
+  for (let i = ti - 1; i >= Math.max(0, ti - 30); i--) {
+    const b = blocks[i];
+    if (b.type === 'p' && b.lines.some((l) => moiKey(headNorm(l)) || /^\d+(\.\d+)*\.?\s+[A-Z]/.test(l.trim()) && l.length < 60 && !/attachment/i.test(l))) break;
+    if (b.type === 'p' && b.lines.some((l) => l.length > 150)) break;
+    if (b.type === 'tbl' && !isChecklist(b.rows) && !/test condition/i.test(b.rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join(' '))) break;
+    st = i;
+    if (b.type === 'p' && b.lines.some((l) => /short term|record\s*:|^attachment\s*\d|preventive maintenance record/i.test(l))) banner = i;
+  }
+  if (banner >= 0) st = banner; else { /* no banner: start at the first block that belongs to the record (skip leftover lines like "Not applicable.") */
+    while (st < ti && blocks[st].type === 'p' && !blocks[st].lines.some((l) => /inventory|conducted|bought|reviewed/i.test(l))) st++;
+  }
+  const rec = blocks.slice(st);
+  const txt = rec.map((b) => b.type === 'p' ? b.lines.join(' ') : b.rows.map((r) => r.map((c) => c.join(' ')).join(' ')).join(' ')).join(' ');
+  const land = !!(blocks[ti].land);
+  const L = [];
+  const all = blocks.map((b) => b.type === 'p' ? b.lines.join(' ') : '').join(' ');
+  let title = /short term/i.test(txt + ' ' + all) ? 'Short Term Preventive Maintenance Record' : (/preventive maintenance/i.test(txt) ? 'Preventive Maintenance Record' : '');
+  if (title && !/record/i.test(title)) title += ' Record';
+  let first = true;
+  for (const b of rec) {
+    if (b.type === 'p') {
+      for (const raw of b.lines) {
+        let l = raw.replace(/\s{2,}/g, '   ').trim();
+        if (!l) continue;
+        if (/short term|^-?\d+-\d+/i.test(l) && l.length > 25 && /record/i.test(l) && !/inventory/i.test(l)) { L.push('Record No.: ___ / ___'); continue; } /* banner text box: logo and title text are scrambled, rebuilt from the title */
+        if (l) L.push(l);
+      }
+    } else {
+      const isCk = isChecklist(b.rows);
+      let m;
+      if (isCk) { const c = checklistMarkup(b.rows); if (!title) title = c.caption; if (c.extra.length) L.push(...c.extra); m = c.lines; }
+      else { m = tableMarkup(b.rows, false); if (m.length === 1 && b.rows.length === 1 && b.rows[0].length === 1) for (let k = 0; k < 6; k++) m.push('|  |'); }
+      if (m && m.length) { if (L.length && L[L.length - 1].startsWith('|')) L.push('\u00a0'); L.push(...m); if (b.type === 'tbl') L.push('\u00a0'); }
+    }
+  }
+  while (L.length && L[L.length - 1] === '\u00a0') L.pop();
+  return { start: st, title: title || 'Maintenance record', land, lines: L };
+}
 function walkSections(blocks, detect) {
   const out = { _pre: [] };
   let cur = '_pre';
@@ -527,7 +573,9 @@ function buildModel(ojti, moi) {
   /* ----- MOI ----- */
   let mSec = {};
   if (moi) {
-    mSec = walkSections(moi.blocks, (n) => moiKey(n));
+    const rec = extractRecord(moi.blocks);
+    if (rec) { M.record = rec; }
+    mSec = walkSections(rec ? moi.blocks.slice(0, rec.start) : moi.blocks, (n) => moiKey(n));
     const need = ['purpose', 'scope', 'safety', 'waste'].filter((k) => !mSec[k]);
     if (need.length) warnings.push('MOI: could not find the section(s): ' + need.join(', ') + '. Fill them in below if needed.');
   }
@@ -694,7 +742,10 @@ function buildModel(ojti, moi) {
   }
   /* checklist tables (STPM etc.) go to the Appendix in every mode */
   for (const b of (mSec.maintenance || [])) if (b.type === 'tbl' && isChecklist(b.rows)) ck.push(b);
-  if (ck.length) {
+  if (M.record) {
+    const r = M.record;
+    M.appendix = (M.appendix ? M.appendix + '\n' : '') + `## ${r.title}\n{{page ${r.land ? 'landscape' : 'portrait'}}}\n` + r.lines.join('\n');
+  } else if (ck.length) {
     const used2 = new Set();
     const blocks = ck.map((blk) => {
       const m = checklistMarkup(blk.rows); let cap = m.caption; if (used2.has(cap.toLowerCase())) cap += ' (continued)'; used2.add(cap.toLowerCase());
@@ -810,9 +861,9 @@ function mdTable(rowsTxt) {
   const rows = rowsTxt.map((l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())).filter((r) => !(r.every((c) => /^:?-{2,}:?$/.test(c) || c === '') && r.some((c) => c)));
   const n = Math.max(...rows.map((r) => r.length));
   const weights = [];
-  for (let c = 0; c < n; c++) weights.push(Math.min(60, Math.max(8, Math.max(...rows.map((r) => (r[c] || '').length)))));
+  for (let c = 0; c < n; c++) weights.push(Math.min(60, Math.max(8, Math.max(...rows.map((r) => (r[c] || '').length)), 2 + Math.max(...rows.map((r) => Math.max(0, ...(r[c] || '').split(/\s+/).map((x) => x.length)))))));
   const tot = weights.reduce((a, b) => a + b, 0);
-  const minW = Math.min(900, Math.floor(TW / n) - 20), fsz = n > 8 ? 16 : 20;
+  const minW = Math.min(n <= 6 ? 1300 : 900, Math.floor(TW / n) - 20), fsz = n > 8 ? 16 : 20;
   const cols = weights.map((w) => Math.max(minW, Math.round((w / tot) * TW)));
   for (let k = 0; k < 6; k++) { /* rescale the wide columns until the total fits and none is below the minimum */
     const sum = cols.reduce((a, b) => a + b, 0); const free = cols.filter((w) => w > minW).reduce((a, b) => a + b, 0);
