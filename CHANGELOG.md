@@ -2,6 +2,10 @@
 
 Merges one OJTI and one MOI (Word) into a draft Work Instruction in the new company format.
 
+## 1.10 (2 Nov 2026)
+- Automatic OJTI / MOI detection: the tool checks the content of each file, not the box it was uploaded into. If the two files are in the wrong boxes they are swapped; a single file in the wrong box is moved to the right one. A note appears under "Check these first".
+- If both files look like the same type, the tool asks for one OJTI and one MOI instead of building a wrong document.
+
 ## 1.9 (2 Nov 2026)
 - With an OJTI and an MOI, 6.2 is now "Description of workflow / procedure / method", taken step by step from the MOI (item 7 of the MOI). 6.3 is Calibration and PM, 6.4 is Tools and materials used.
 - The MOI structure is kept: each MOI topic becomes a numbered sub-heading (6.2.1, 6.2.2 and so on), its steps are numbered 1, 2, 3, and group titles are bold. Tables and pictures from the MOI stay inside 6.2 (no longer moved to the Appendix).

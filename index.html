@@ -456,6 +456,26 @@ function walkSections(blocks, detect) {
 }
 function plines(blocks) { return (blocks || []).filter((b) => b.type === 'p').flatMap((b) => b.lines).map(stripNum).filter(Boolean); }
 
+/* ---------- OJTI or MOI? decided from the content (file name only breaks ties) ---------- */
+function docType(doc, fname) {
+  let o = 0, m = 0;
+  for (const b of doc.blocks) {
+    if (b.type === 'p') for (const l of b.lines) {
+      const n = headNorm(l);
+      if (!n || n.length > 60) continue;
+      if (ojtiKey(n) && ['overview', 'desc', 'audience', 'hours', 'procedure', 'impact', 'reaction', 'assessment'].includes(ojtiKey(n))) o += 2;
+      if (/^description of workflow/.test(n) || n === 'equipment used' || n === 'material used' || n === 'maintenance') m += 2;
+    } else if (b.type === 'tbl' && b.rows[0]) {
+      const head = b.rows[0].map((c) => c.join(' ')).join(' ').toLowerCase();
+      if (/key points/.test(head) || (/\bhow\b|bagaimana/.test(head) && /\bwhy\b|mengapa/.test(head))) o += 6;
+    }
+  }
+  const fn = String(fname || '').toLowerCase();
+  if (/ojti|\bojt\b/.test(fn)) o += 1; if (/\bmoi\b|_moi|moi_|operating.?instruction/.test(fn)) m += 1;
+  if (o === m || (o < 2 && m < 2)) return 'unknown';
+  return o > m ? 'ojti' : 'moi';
+}
+
 /* ---------- section detection ---------- */
 function moiKey(n) {
   if (n === 'purpose') return 'purpose';
@@ -1159,9 +1179,17 @@ async function buildWiBlob(S) {
     setStatus('Reading files…');
     $('#go').disabled = true;
     try {
-      const o = files.ojti ? await readDocx(files.ojti) : null;
-      const m = files.moi ? await readDocx(files.moi) : null;
+      let o = files.ojti ? await readDocx(files.ojti) : null;
+      let m = files.moi ? await readDocx(files.moi) : null;
+      /* people sometimes upload into the wrong box: decide from the content */
+      const notes = [];
+      const to = o ? docType(o, files.ojti.name) : null, tm = m ? docType(m, files.moi.name) : null;
+      if (o && m && to === 'moi' && tm === 'ojti') { [o, m] = [m, o]; notes.push(`The two files were in the wrong boxes: "${files.moi.name}" is the OJTI and "${files.ojti.name}" is the MOI. They were swapped.`); }
+      else if (o && m && to === tm && to !== 'unknown') { setStatus(`Both files look like an ${to.toUpperCase()}. Please upload one OJTI and one MOI.`, 'warn'); $('#go').disabled = false; return; }
+      else if (o && !m && to === 'moi') { m = o; o = null; notes.push(`"${files.ojti.name}" looks like an MOI, so it was used as the MOI (6.1 will be N/A).`); }
+      else if (m && !o && tm === 'ojti') { o = m; m = null; notes.push(`"${files.moi.name}" looks like an OJTI, so it was used as the OJTI.`); }
       S = buildModel(o, m);
+      S.warnings.unshift(...notes);
       renderReview();
       $('#s-review').hidden = false;
       setStatus('');
