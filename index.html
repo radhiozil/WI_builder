@@ -233,6 +233,16 @@ function tblRows(t, rels) {
   }));
 }
 
+/* outline level and emphasis of a paragraph: used to rebuild topic / step structure of the MOI workflow */
+function paraMeta(p) {
+  const at = (e, a) => e.getAttributeNS(WNS, a) || e.getAttribute('w:' + a) || '';
+  const ppr = kids(p, 'pPr')[0];
+  const np = ppr && kids(ppr, 'numPr')[0];
+  const il = np && kids(np, 'ilvl')[0];
+  const runs = Array.from(p.getElementsByTagNameNS(WNS, 'r')).filter((r) => (r.textContent || '').trim());
+  const on = (r, n) => { const rp = kids(r, 'rPr')[0]; const e = rp && kids(rp, n)[0]; return !!e && at(e, 'val') !== '0' && at(e, 'val') !== 'false' && at(e, 'val') !== 'none'; };
+  return { ilvl: np ? (il ? parseInt(at(il, 'val') || '0', 10) : 0) : -1, bold: runs.length > 0 && on(runs[0], 'b'), und: runs.length > 0 && on(runs[0], 'u') };
+}
 function sectLand(sp) {
   const pg = kids(sp, 'pgSz')[0]; if (!pg) return null;
   const g = (a) => parseInt(pg.getAttributeNS(WNS, a) || pg.getAttribute('w:' + a) || '0', 10);
@@ -246,7 +256,7 @@ function readBlocks(xmlDoc, rels) {
     for (const c of n.children) {
       const ln = c.localName;
       if (ln === 'p') {
-        blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean), imgs: paraImages(c, rels) });
+        blocks.push({ type: 'p', lines: paraLines(c).filter(Boolean), imgs: paraImages(c, rels), meta: paraMeta(c) });
         const ppr = kids(c, 'pPr')[0]; const sp = ppr && kids(ppr, 'sectPr')[0];
         if (sp) { const l = sectLand(sp); pending.forEach((b) => { b.land = !!l; }); pending = []; }
       } else if (ln === 'tbl') { const b = { type: 'tbl', rows: tblRows(c, rels) }; blocks.push(b); pending.push(b); }
@@ -710,16 +720,35 @@ function buildModel(ojti, moi) {
     const addImgs = (list) => {
       const ids = list.map((im) => reg(moi, 'MOI', im)).filter(Boolean);
       if (!ids.length) return;
-      if (M.moiOnly) ids.forEach((id) => wf.push(`{{image ${id}}}`));
+      ids.forEach((id) => wf.push(`{{image ${id}}}`));
       const li = Math.max(0, M.moiLines.length - 1);
       (M.moiImgs[li] = M.moiImgs[li] || []).push(...ids);
+    };
+    /* topics become numbered sub-headings (6.2.1 ...), steps become numbered items, so the MOI structure is kept */
+    const lineKind = (raw, meta) => {
+      const clean = raw.replace(/_{3,}\s*$/, '').trim();
+      const t = stripNum(clean).trim();
+      const m = meta || { ilvl: -1, bold: false };
+      if (/_{3,}\s*$/.test(raw) && t.length <= 80) return { k: 'group', t };
+      if (/^step\s*\d+\s*:/i.test(t)) return { k: 'step', t: t.replace(/^step\s*\d+\s*:\s*/i, '') };
+      if (/^\d+\.\d+\.\d+/.test(clean.trim())) return { k: 'step', t };
+      const heady = t.length > 0 && t.length <= 80 && (t.length <= 40 || !/[.;,]$/.test(t)) && !/[;,]$/.test(t) && !/^(figure|table|note|fig\.)\b/i.test(t);
+      if (/^\d+\.\d+\s+\S/.test(clean.trim()) && heady) return { k: 'topic', t };
+      if (m.ilvl === 1 && heady) return { k: 'topic', t };
+      if (m.ilvl >= 2) return { k: 'step', t };
+      if (m.ilvl < 0 && m.bold && heady) return { k: 'topic', t };
+      if (m.ilvl === 1) return { k: 'step', t };
+      return { k: 'plain', t };
     };
     for (const b of mSec.workflow) {
       if (b.type === 'p') {
         for (const raw of b.lines) {
-          { const w0 = raw.trim(); if (w0 && !/^one point lesson/i.test(w0)) wf.push(w0); }
+          const w0 = raw.trim();
+          if (!w0 || /^one point lesson/i.test(w0)) continue;
+          const kd = lineKind(raw, b.meta);
+          wf.push(kd.k === 'group' ? '### ' + kd.t : kd.k === 'topic' ? '## ' + kd.t : kd.k === 'step' ? '- ' + kd.t : kd.t);
           const t = stripNum(raw).replace(/^step\s*\d+\s*:\s*/i, '').trim();
-          if (!t || /^one point lesson/i.test(t)) continue;
+          if (!t) continue;
           M.moiLines.push(t);
           if (t.length < 70) lastCaption = t;
         }
@@ -729,16 +758,12 @@ function buildModel(ojti, moi) {
         const tImgs = [];
         b.rows.forEach((r) => r.forEach((cl) => tImgs.push(...(cl.imgs || []))));
         if (tm.length < 2) { addImgs(tImgs); continue; }
-        let cap = lastCaption.replace(/[.:]+$/, '').trim() || 'Table';
-        if (used.has(cap.toLowerCase())) cap += ' (continued)';
-        used.add(cap.toLowerCase());
-        app.push(`## ${sentenceCase(cap)}\n${tm.join('\n')}`);
-        wf.push(...tm);
+        wf.push('\u00a0', ...tm, '\u00a0');
         addImgs(tImgs);
       }
     }
-    M.appendix = app.join('\n');
-    if (M.moiOnly) { M.wf = wf.join('\n'); M.appendix = ''; } /* no OJTI: the MOI workflow becomes 6.2 instead of the appendix */
+    M.wf = wf.join('\n').replace(/^\u00a0\n/gm, (m0) => m0); /* the MOI workflow becomes 6.2 in every mode; its tables stay inside it */
+    M.appendix = '';
   }
   /* checklist tables (STPM etc.) go to the Appendix in every mode */
   for (const b of (mSec.maintenance || [])) if (b.type === 'tbl' && isChecklist(b.rows)) ck.push(b);
@@ -820,7 +845,7 @@ function para(inner, p = {}) {
 }
 const bodyP = (inner) => para(inner, { tabs: '<w:tab w:val="num" w:pos="567"/>', after: 100, ind: 567, first: 0 });
 const bulletP = (inner) => para(inner, { style: 'ListParagraph', numId: 90, after: 60, ind: 927, hang: 360 });
-const numP = (inner, numId) => para(inner, { style: 'ListParagraph', numId, after: 60, ind: 927, hang: 360 });
+const numP = (inner, numId, o = {}) => para(inner, { style: 'ListParagraph', numId, after: 60, ind: o.ind || 927, hang: o.hang || 360 });
 const cellP = (inner, o = {}) => para(inner, { after: o.after != null ? o.after : 60, ind: 0, first: 0, jc: o.jc });
 
 function tc(w, inner, o = {}) {
@@ -902,7 +927,7 @@ function markup(text, ctx, opts = {}) {
   for (let i = 0; i < ls.length; i++) {
     const l = ls[i].trim();
     if (!l) continue;
-    if (!/^[-•]\s+/.test(l)) cur = 0;
+    if (!/^[-•]\s+/.test(l) && !(opts.sub2 && !l.startsWith('## ') && !l.startsWith('### '))) cur = 0; /* in the workflow, plain lines and tables do not restart the step numbers */
     if (l.startsWith('|')) {
       const grp = [l];
       while (i + 1 < ls.length && ls[i + 1].trim().startsWith('|')) grp.push(ls[++i].trim());
@@ -910,10 +935,13 @@ function markup(text, ctx, opts = {}) {
     } else if (/^\{\{image \d+\}\}$/.test(l)) {
       const r = imgRun(CUR, parseInt(l.match(/\d+/)[0], 10), 4500000, 3600000);
       if (r) out.push(para(r, { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 60, after: 100, ind: 567, first: 0 }));
-    } else if (opts.sub && l.startsWith('## ')) { subOpen = true; out.push(para(run(l.slice(3).trim(), { b: true, sz: 24 }), { numId: 19, ilvl: 1, tabs: '<w:tab w:val="clear" w:pos="1337"/>', before: 120, after: 60, ind: 1300, hang: 733, keepNext: true })); } /* numbered 3.1, 3.2 ... like a level-2 heading, but not a Heading style, so the contents list stays short */
+    } else if (opts.sub2 && l.startsWith('### ')) out.push(para(run(l.slice(4).trim(), { b: true }), { before: 160, after: 60, ind: 567, first: 0, keepNext: true }));
+    else if (opts.sub2 && l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true, sz: 22 }), { numId: 19, ilvl: 2, tabs: '<w:tab w:val="clear" w:pos="1337"/>', before: 120, after: 60, ind: 1300, hang: 733, keepNext: true })); /* 6.2.1, 6.2.2 ... continue the 6.2 heading number */
+    else if (opts.sub2 && !/^[-•]\s+/.test(l)) out.push(para(runsHl(l), { after: 100, ind: 1300, first: 0 }));
+    else if (opts.sub && l.startsWith('## ')) { subOpen = true; out.push(para(run(l.slice(3).trim(), { b: true, sz: 24 }), { numId: 19, ilvl: 1, tabs: '<w:tab w:val="clear" w:pos="1337"/>', before: 120, after: 60, ind: 1300, hang: 733, keepNext: true })); } /* numbered 3.1, 3.2 ... like a level-2 heading, but not a Heading style, so the contents list stays short */
     else if (opts.sub && subOpen && /^[-•]\s+/.test(l)) out.push(para(runsHl(l.replace(/^[-•]\s+/, '')), { numId: 19, ilvl: 2, after: 60, ind: 1300, hang: 733 })); /* 3.1.1, 3.1.2 ... continue the heading numbers */
     else if (l.startsWith('## ')) out.push(para(run(l.slice(3).trim(), { b: true }), { tabs: '<w:tab w:val="num" w:pos="567"/>', before: 120, after: 60, ind: 567, first: 0 })); /* sub-labels stay out of the contents list, like the template */
-    else if (/^[-•]\s+/.test(l)) { if (!cur) { cur = 100 + NUMLISTS.length; NUMLISTS.push(cur); } out.push(numP(runsHl(l.replace(/^[-•]\s+/, '')), cur)); }
+    else if (/^[-•]\s+/.test(l)) { if (!cur) { cur = 100 + NUMLISTS.length; NUMLISTS.push(cur); } out.push(numP(runsHl(l.replace(/^[-•]\s+/, '')), cur, opts.sub2 ? { ind: 1660, hang: 360 } : {})); }
     else out.push(opts.sub && subOpen ? para(runsHl(l), { after: 100, ind: 1300, first: 0 }) : bodyP(runsHl(l)));
   }
   return out.join('');
@@ -991,15 +1019,16 @@ function buildDocumentXml(S) {
   if (S.moiOnly) {
     /* MOI only: 6.1 is N/A, 6.2 is the MOI workflow, 6.3 maintenance, 6.4+ equipment and materials; one portrait section */
     body.push(c.H1('PROCEDURE'), c.H2('Basic operating procedure (for technician/engineer)'), markup('N/A', c));
-    body.push(c.H2('Description of workflow / procedure / method'), markup(S.wf, c));
+    body.push(c.H2('Description of workflow / procedure / method'), markup(S.wf, c, { sub2: true }));
     body.push(c.H2('Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, c));
     if ((S.equipUsed || '').trim()) body.push(c.H2('Equipment used'), markup(S.equipUsed, c));
     if ((S.matUsed || '').trim()) body.push(c.H2('Material used'), markup(S.matUsed, c));
   } else {
     body.push(c.H1('PROCEDURE'), c.H2('Basic operating procedure (for technician/engineer)'));
     body.push(procTable(S), sectBreak(true)); /* landscape section ends; the rest is portrait */
-    body.push(c.H2('Tools and materials used'), markup(S.tools, c));
+    if ((S.wf || '').trim()) body.push(c.H2('Description of workflow / procedure / method'), markup(S.wf, c, { sub2: true }));
     body.push(c.H2('Calibration (Cal) and Preventive Maintenance (PM)'), markup(S.cal, c));
+    body.push(c.H2('Tools and materials used'), markup(S.tools, c));
   }
   body.push(c.H1('APPENDIX'));
   /* checklist tables (marked {{page landscape|portrait}}) each get their own page, in the orientation they had in the MOI */
@@ -1188,7 +1217,7 @@ async function buildWiBlob(S) {
     const w = S.warnings;
     root.append(
       h('div', { class: 'summary' },
-        h('p', { class: 'lead' }, S.moiOnly ? 'MOI only: 6.1 will be N/A and the MOI workflow goes into 6.2.' : `${S.rows.filter((r) => r.src === 'OJTI').length} procedure steps read from the OJTI. ${S.moiLines.length} lines of MOI workflow text are listed for reference.`),
+        h('p', { class: 'lead' }, S.moiOnly ? 'MOI only: 6.1 will be N/A and the MOI workflow goes into 6.2.' : `${S.rows.filter((r) => r.src === 'OJTI').length} procedure steps read from the OJTI. ${S.moiLines.length} lines of MOI workflow text go into 6.2.`),
         w.length ? h('div', { class: 'warn' }, h('strong', { text: 'Check these first' }), h('ul', {}, w.map((x) => h('li', { text: x })))) : h('p', { class: 'okline', text: 'No problems found while reading. Review each section below anyway.' })),
       section('Document details', true,
         h('div', { class: 'grid2' },
@@ -1212,8 +1241,10 @@ async function buildWiBlob(S) {
         section('6.5 Material used', false, field('Material used (leave empty to drop the heading)', 'matUsed', { tag: 'textarea', rows: 5 })),
       ] : [
         procSection(),
-        section('6.2 Tools and materials used', false, field('Tools and materials', 'tools', { tag: 'textarea', rows: 7 })),
+        section('6.2 Description of workflow / procedure / method', true, field('Workflow text from the MOI', 'wf', { tag: 'textarea', rows: 16, hint: 'Built from the MOI "Description of Workflow / Procedure / Method". A "## " line is a numbered topic (6.2.1, 6.2.2…), a "- " line is a numbered step, a "### " line is a group title. A line such as {{image 3}} places that picture here.' }),
+          S.images.length ? h('div', { class: 'tf' }, h('label', { text: `Pictures read from the MOI (${S.images.length}); the number is used in the {{image N}} lines` }), h('div', { class: 'thumbs' }, S.images.map((m) => thumb(m.id, null, `image ${m.id}`)))) : null),
         section('6.3 Calibration (Cal) and Preventive Maintenance (PM)', false, field('Calibration and PM', 'cal', { tag: 'textarea', rows: 6 })),
+        section('6.4 Tools and materials used', false, field('Tools and materials', 'tools', { tag: 'textarea', rows: 7 })),
       ]),
       section('7. Appendix (tables taken from the MOI)', false, field('Appendix', 'appendix', { tag: 'textarea', rows: 14, hint: 'Each "##" line is a table title (A1, A2…). Delete any table you do not need. A table marked {{page landscape}} or {{page portrait}} (checklists such as STPM) is put on its own page in that orientation.' })),
       h('div', { class: 'dl' },

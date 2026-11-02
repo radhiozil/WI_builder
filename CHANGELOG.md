@@ -2,6 +2,11 @@
 
 Merges one OJTI and one MOI (Word) into a draft Work Instruction in the new company format.
 
+## 1.9 (2 Nov 2026)
+- With an OJTI and an MOI, 6.2 is now "Description of workflow / procedure / method", taken step by step from the MOI (item 7 of the MOI). 6.3 is Calibration and PM, 6.4 is Tools and materials used.
+- The MOI structure is kept: each MOI topic becomes a numbered sub-heading (6.2.1, 6.2.2 and so on), its steps are numbered 1, 2, 3, and group titles are bold. Tables and pictures from the MOI stay inside 6.2 (no longer moved to the Appendix).
+- MOI-only mode uses the same layout in its 6.2. The Appendix now holds only the maintenance record / checklist pages.
+
 ## 1.8 (29 Oct 2026)
 - The whole maintenance record at the end of an MOI is copied to the Appendix page, not only the tick table: title, Attachment line, Inventory no. / Conducted by / Reviewed by lines, Test Conditions table, the weekly (or other) checklist and the Remarks box.
 - Table columns are never narrower than a heading word (for example "Signature" no longer breaks).
